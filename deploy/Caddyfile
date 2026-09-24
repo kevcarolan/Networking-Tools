@@ -1,0 +1,7 @@
+# Replace with the server's DNS name. "tls internal" uses Caddy's own CA;
+# for a certificate from your internal CA use:  tls /path/cert.pem /path/key.pem
+netops.corp.local {
+	tls internal
+	encode gzip
+	reverse_proxy netops:8000
+}

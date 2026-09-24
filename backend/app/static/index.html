@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NetOps Tools</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <!-- Login -->
+  <section id="login-view" class="login" hidden>
+    <form id="login-form" class="card login-card">
+      <h1>NetOps Tools</h1>
+      <p class="muted">Sign in with your domain account</p>
+      <label>Username <input name="username" autocomplete="username" required autofocus></label>
+      <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+      <p id="login-error" class="error" hidden></p>
+      <button type="submit" class="primary">Sign in</button>
+    </form>
+  </section>
+
+  <!-- App shell -->
+  <div id="app-view" hidden>
+    <header class="topbar">
+      <span class="brand">NetOps Tools</span>
+      <nav id="nav">
+        <button data-view="backups" class="active">Config backups</button>
+        <button data-view="credentials" data-admin>Credentials</button>
+        <button data-view="audit" data-admin>Audit log</button>
+      </nav>
+      <span class="spacer"></span>
+      <span id="whoami" class="muted"></span>
+      <button id="logout" class="ghost">Sign out</button>
+    </header>
+
+    <main>
+      <!-- Config backups -->
+      <section id="view-backups" class="view">
+        <div id="summary" class="tiles"></div>
+        <div class="toolbar">
+          <input id="search" type="search" placeholder="Search name, address, site…">
+          <select id="filter-status">
+            <option value="">All statuses</option>
+            <option value="failed">Failed</option>
+            <option value="success">OK</option>
+            <option value="never">Never backed up</option>
+            <option value="disabled">Disabled</option>
+          </select>
+          <select id="filter-site"><option value="">All sites</option></select>
+          <span class="spacer"></span>
+          <button id="add-device" class="primary" data-admin>+ Add device</button>
+        </div>
+        <div class="table-wrap">
+          <table id="device-table">
+            <thead><tr>
+              <th></th><th>Device</th><th>Address</th><th>Site</th><th>Platform</th>
+              <th>Frequency</th><th>Last success</th><th>Last change</th><th>Result</th><th></th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+          <p id="empty-devices" class="empty" hidden>No devices yet.</p>
+        </div>
+      </section>
+
+      <!-- Credentials -->
+      <section id="view-credentials" class="view" hidden>
+        <div class="toolbar">
+          <p class="muted">Login profiles used to connect to devices. Passwords are stored encrypted and never shown again.</p>
+          <span class="spacer"></span>
+          <button id="add-credential" class="primary">+ Add credential</button>
+        </div>
+        <div class="table-wrap">
+          <table id="credential-table">
+            <thead><tr><th>Name</th><th>Username</th><th>Enable secret</th><th>Devices</th><th>Updated</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Audit -->
+      <section id="view-audit" class="view" hidden>
+        <div class="table-wrap">
+          <table id="audit-table">
+            <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Detail</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Device add/edit -->
+  <dialog id="device-dialog">
+    <form id="device-form" method="dialog" class="form">
+      <h2 id="device-dialog-title">Add device</h2>
+      <div class="grid2">
+        <label>Name <input name="name" required maxlength="100" placeholder="core-sw1"></label>
+        <label>IP address / hostname <input name="address" required placeholder="10.0.0.1"></label>
+        <label>Platform <select name="platform" required></select></label>
+        <label>Site <input name="site" maxlength="100" list="site-list" placeholder="HQ"></label>
+        <label>Credential <select name="credential_id"></select></label>
+        <label>Backup frequency
+          <select name="frequency_minutes">
+            <option value="15">Every 15 minutes</option>
+            <option value="60">Hourly</option>
+            <option value="240">Every 4 hours</option>
+            <option value="720">Every 12 hours</option>
+            <option value="1440" selected>Daily</option>
+            <option value="10080">Weekly</option>
+          </select>
+        </label>
+      </div>
+      <label>Notes <textarea name="notes" rows="2" maxlength="5000"></textarea></label>
+      <div class="checks">
+        <label class="check"><input type="checkbox" name="enabled" checked> Device enabled</label>
+        <label class="check"><input type="checkbox" name="backup_enabled" checked> Scheduled backups on</label>
+      </div>
+      <p class="error" hidden></p>
+      <div class="dialog-actions">
+        <button value="cancel" formnovalidate class="ghost">Cancel</button>
+        <button value="save" class="primary">Save</button>
+      </div>
+    </form>
+    <datalist id="site-list"></datalist>
+  </dialog>
+
+  <!-- Credential add/edit -->
+  <dialog id="credential-dialog">
+    <form id="credential-form" method="dialog" class="form">
+      <h2 id="credential-dialog-title">Add credential</h2>
+      <label>Profile name <input name="name" required maxlength="100" placeholder="switch-backup"></label>
+      <label>Username <input name="username" required autocomplete="off"></label>
+      <label>Password <input name="password" type="password" autocomplete="new-password"></label>
+      <label>Enable secret (optional) <input name="enable_secret" type="password" autocomplete="new-password"></label>
+      <p class="hint muted" hidden id="credential-edit-hint">Leave password fields blank to keep the current values.</p>
+      <p class="error" hidden></p>
+      <div class="dialog-actions">
+        <button value="cancel" formnovalidate class="ghost">Cancel</button>
+        <button value="save" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Device detail -->
+  <dialog id="detail-dialog" class="wide">
+    <div class="detail-head">
+      <h2 id="detail-title"></h2>
+      <button id="detail-close" class="ghost">Close</button>
+    </div>
+    <div class="tabs" id="detail-tabs">
+      <button data-tab="runs" class="active">Backup history</button>
+      <button data-tab="versions">Config versions</button>
+    </div>
+    <div id="detail-runs" class="detail-pane"></div>
+    <div id="detail-versions" class="detail-pane" hidden></div>
+    <pre id="detail-text" class="config" hidden></pre>
+  </dialog>
+
+  <div id="toast" class="toast" hidden></div>
+</body>
+</html>

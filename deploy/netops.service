@@ -1,0 +1,22 @@
+# systemd unit for running without Docker (see README "Install without Docker").
+#   sudo cp deploy/netops.service /etc/systemd/system/
+#   sudo systemctl enable --now netops
+[Unit]
+Description=NetOps Tools
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=netops
+Group=netops
+WorkingDirectory=/opt/netops/backend
+EnvironmentFile=/etc/netops/netops.env
+ExecStart=/opt/netops/venv/bin/uvicorn --factory app.main:create_app --host 127.0.0.1 --port 8000 --proxy-headers
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/netops/data /etc/netops
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

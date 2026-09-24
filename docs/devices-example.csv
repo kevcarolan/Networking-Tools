@@ -1,0 +1,6 @@
+name,address,platform,site,credential,frequency_minutes,notes
+core-sw1,10.10.0.1,cisco_ios,HQ,switch-backup,1440,Core stack
+dc-nx1,10.20.0.1,cisco_nxos,Datacentre,switch-backup,1440,
+fw-edge1,10.10.0.254,cisco_ftd,HQ,firewall-backup,720,Internet edge FTD
+fw-dc1,10.20.0.254,cisco_asa,Datacentre,firewall-backup,720,Firepower in ASA mode
+acc-sw-b1,10.30.0.11,allied_awplus,Branch-1,switch-backup,1440,

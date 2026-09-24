@@ -1,11 +1,17 @@
 # NetOps Tools
 
-A self-hosted web platform for network operations tools. The first tool is
-**Config Backup**: it pulls running configurations from switches and firewalls
-on a schedule, keeps every version in a git archive, and shows in the browser
-which devices are backing up and which are failing, and why.
+A self-hosted web platform for network operations tools. Two tools share one
+device inventory, one AD login and one database:
 
-See [docs/design.md](docs/design.md) for the design, the decisions behind it, and the roadmap.
+* **Config Backup** pulls running configurations from switches and firewalls
+  on a schedule, keeps every version in a git archive, and shows in the browser
+  which devices are backing up and which are failing, and why.
+* **Firmware** shows which software version every device runs compared with the
+  approved version for its model, and keeps a checksummed library of firmware images.
+  Staging and upgrades come in later phases.
+
+See [docs/design.md](docs/design.md) for the platform design and roadmap, and
+[docs/firmware.md](docs/firmware.md) for the firmware tool's design and upgrade plan.
 
 | Supported platform | Key | Method |
 |---|---|---|
@@ -31,6 +37,15 @@ See [docs/design.md](docs/design.md) for the design, the decisions behind it, an
 * Audit log of logins and every change.
 * Failed devices are retried hourly (configurable) rather than waiting for the next scheduled run.
 
+**Firmware**
+
+* Version report: model, serial, software version, install/bundle mode, failover role
+  and free flash for every device, read over SSH daily (or with **Check now**).
+* Standards: the approved version per platform and model pattern (e.g. `C9300-*`).
+  Each device shows as on standard, behind, ahead, or no standard set. CSV export.
+* Image library: upload firmware images (streamed to disk, MD5/SHA-512 computed
+  and optionally checked against the vendor's checksum), and link them to standards.
+
 ## Quick start (development / trial)
 
 ```bash
@@ -52,8 +67,8 @@ Run the tests with `pytest` from `backend/`.
 
 ## Production install (Linux server, Docker)
 
-Recommended host: a small Ubuntu 24.04 / Debian 12 VM (2 vCPU, 4 GB RAM and 20 GB of disk is plenty
-for a few hundred devices) that can reach the devices' management addresses on TCP/22.
+Recommended host: a small Ubuntu 24.04 / Debian 12 VM (2 vCPU, 4 GB RAM; 20 GB of disk is plenty
+for backups of a few hundred devices, but allow about 100 GB if you keep firmware images on it) that can reach the devices' management addresses on TCP/22.
 
 ```bash
 git clone <this repo> /opt/netops && cd /opt/netops
@@ -114,18 +129,21 @@ The CSV columns are `name,address,platform,site,credential,frequency_minutes,not
 `credential` must be the name of an existing credential profile. Existing names are skipped.
 
 Test a single device from the command line: `python -m app.cli backup core-sw1`.
+Check what the firmware tool reads from a device: `python -m app.cli firmware-check core-sw1 --raw`.
 
 ## Where things are stored
 
 ```
 data/
-├── app.db            SQLite: devices, credentials (encrypted), schedules, run history, audit log
+├── app.db            SQLite: devices, credentials (encrypted), schedules, run history, audit log, firmware (fw_*)
 ├── configs/          git repository of every config version (browse with any git tool)
+├── firmware/         uploaded firmware images
 ├── credential.key    encryption key (move it outside data/ in production!)
 └── session.key       signs login cookies
 ```
 
-Back up the whole `data/` folder and the credential key. Deleting a device removes it
+Back up the whole `data/` folder and the credential key (`data/firmware/` can be left out:
+the images can be downloaded from the vendor again). Deleting a device removes it
 from the GUI, but its config history stays in `configs/`.
 
 ## Project layout
@@ -136,11 +154,17 @@ backend/app/
 │   ├── auth.py              AD/LDAP + local admin login, roles
 │   ├── inventory.py         devices & credential profiles API
 │   ├── platforms.py         supported vendors (add new ones here)
+│   ├── ssh.py               SSH login, show commands, error classification (Netmiko)
 │   ├── models.py, db.py, crypto.py, config.py, audit.py
 ├── tools/config_backup/     the config backup tool
 │   ├── collector.py         SSH collection (Netmiko), config cleaning, error classification
 │   ├── storage.py           git config archive
 │   ├── service.py           scheduler + worker pool
+│   └── api.py               HTTP API
+├── tools/firmware_upgrade/  the firmware tool
+│   ├── facts.py             show version parsers per platform, version comparison
+│   ├── images.py            image library on disk (streamed upload + checksums)
+│   ├── service.py           scheduled version checks
 │   └── api.py               HTTP API
 ├── static/                  web GUI (plain HTML/CSS/JavaScript, no build step)
 ├── cli.py                   admin commands

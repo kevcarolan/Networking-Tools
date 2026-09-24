@@ -104,7 +104,9 @@ async function showApp(user) {
   switchView("backups");
   clearInterval(state.refreshTimer);
   state.refreshTimer = setInterval(() => {
-    if (state.view === "backups" && !document.hidden) loadBackups();
+    if (document.hidden) return;
+    if (state.view === "backups") loadBackups();
+    else if (state.view === "firmware" && fw.tab === "versions") loadFwVersions();
   }, 15000);
 }
 
@@ -137,7 +139,7 @@ function switchView(view) {
   state.view = view;
   $$("#nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   $$(".view").forEach((s) => (s.hidden = s.id !== `view-${view}`));
-  ({ backups: loadBackups, credentials: loadCredentials, audit: loadAudit })[view]();
+  ({ backups: loadBackups, firmware: loadFirmware, credentials: loadCredentials, audit: loadAudit })[view]();
 }
 $$("#nav button").forEach((b) => b.addEventListener("click", () => switchView(b.dataset.view)));
 
@@ -419,6 +421,331 @@ async function downloadConfig(id, commit) {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+// ---------- firmware ----------
+
+const fw = { tab: "versions", rows: [], standards: [], images: [] };
+
+const COMPLIANCE_LABEL = {
+  compliant: "On standard", behind: "Behind", ahead: "Ahead", no_standard: "No standard", unknown: "Unknown",
+};
+
+function fmtBytes(n) {
+  if (n === null || n === undefined) return "—";
+  if (n >= 2 ** 30) return `${(n / 2 ** 30).toFixed(1)} GB`;
+  if (n >= 2 ** 20) return `${Math.round(n / 2 ** 20)} MB`;
+  return `${Math.round(n / 1024)} KB`;
+}
+
+function loadFirmware() {
+  selectFwTab(fw.tab);
+}
+
+function selectFwTab(tab) {
+  fw.tab = tab;
+  $$("#fw-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+  $$(".fw-pane").forEach((p) => (p.hidden = p.id !== `fw-${tab}`));
+  ({ versions: loadFwVersions, standards: loadFwStandards, images: loadFwImages })[tab]();
+}
+$$("#fw-tabs button").forEach((b) => b.addEventListener("click", () => selectFwTab(b.dataset.tab)));
+
+async function loadFwVersions() {
+  try {
+    const [rows, summary, images] = await Promise.all([
+      api("/api/firmware/devices"), api("/api/firmware/summary"), api("/api/firmware/images")]);
+    fw.rows = rows;
+    fw.images = images;
+    renderFwSummary(summary);
+    renderFwFilters();
+    renderFwDevices();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+function renderFwSummary(s) {
+  const tiles = [
+    ["", "Devices", s.total],
+    ["compliant", "On standard", s.compliant],
+    ["behind", "Behind standard", s.behind],
+    ["ahead", "Ahead of standard", s.ahead],
+    ["no_standard", "No standard set", s.no_standard],
+    ["unknown", "Version unknown", s.unknown],
+  ];
+  $("#fw-summary").replaceChildren(...tiles.map(([key, label, n]) =>
+    h("button", { class: `tile ${key}`, onclick: () => { $("#fw-filter-compliance").value = key; renderFwDevices(); } },
+      h("span", { class: "num" }, n ?? 0), h("span", { class: "lbl" }, label))));
+}
+
+function fillSelect(sel, allLabel, values) {
+  const current = sel.value;
+  sel.replaceChildren(h("option", { value: "" }, allLabel), ...values.map(([v, l]) => h("option", { value: v }, l)));
+  sel.value = values.some(([v]) => v === current) ? current : "";
+}
+
+function renderFwFilters() {
+  const platforms = new Map(fw.rows.map((r) => [r.device.platform, r.device.platform_label]));
+  fillSelect($("#fw-filter-platform"), "All platforms", [...platforms].sort((a, b) => a[1].localeCompare(b[1])));
+  const sites = [...new Set(fw.rows.map((r) => r.device.site).filter(Boolean))].sort();
+  fillSelect($("#fw-filter-site"), "All sites", sites.map((x) => [x, x]));
+}
+
+function renderFwDevices() {
+  const q = $("#fw-search").value.trim().toLowerCase();
+  const comp = $("#fw-filter-compliance").value;
+  const platform = $("#fw-filter-platform").value;
+  const site = $("#fw-filter-site").value;
+  const rows = fw.rows.filter((r) => {
+    const d = r.device, f = r.facts;
+    if (comp && r.compliance !== comp) return false;
+    if (platform && d.platform !== platform) return false;
+    if (site && d.site !== site) return false;
+    if (q && ![d.name, d.address, d.site, f.model, f.version, f.serial].some((v) => (v || "").toLowerCase().includes(q))) return false;
+    return true;
+  });
+  $("#fw-table tbody").replaceChildren(...rows.map(fwRow));
+  const empty = $("#fw-empty");
+  empty.hidden = rows.length > 0;
+  empty.textContent = fw.rows.length ? "No devices match the filter." : "No devices yet - add them on the Config backups page.";
+}
+
+function fwRow(r) {
+  const d = r.device, f = r.facts;
+  const image = r.target_image ? fw.images.find((i) => i.filename === r.target_image) : null;
+  const lowFlash = image && f.flash_free !== null && f.flash_free < image.size * 1.1;
+  let checked;
+  if (f.busy || f.status === "running") checked = h("span", { class: "badge running" }, "Checking…");
+  else if (f.status === "failed") checked = [h("span", { class: "badge failed" }, "Check failed"),
+    h("span", { class: "errtext" }, f.last_error || ""),
+    f.last_success ? h("span", { class: "errtext" }, `Last good: ${fmtAgo(f.last_success)}`) : null];
+  else checked = h("span", { title: fmtTime(f.last_success) }, fmtAgo(f.last_success));
+  const actions = isAdmin()
+    ? [h("button", { class: "small", disabled: f.busy, onclick: () => fwCheckNow(d) }, "Check now")] : [];
+  const mode = [f.boot_mode, f.ha_role].filter(Boolean).join(" · ") || "—";
+  return h("tr", { class: d.enabled ? "" : "disabled" },
+    h("td", {}, h("span", { class: `dot ${r.compliance}`, title: COMPLIANCE_LABEL[r.compliance] })),
+    h("td", { class: "name" }, d.name, h("small", {}, d.address)),
+    h("td", {}, d.site || "—"),
+    h("td", {}, d.platform_label),
+    h("td", {}, f.model || "—", f.serial ? h("small", { class: "sub mono" }, f.serial) : null),
+    h("td", {}, f.version ? h("code", {}, f.version) : "—",
+      f.previous_version ? h("small", { class: "sub" }, `was ${f.previous_version} until ${fmtTime(f.version_changed_at)}`) : null),
+    h("td", {}, h("span", { class: `badge ${r.compliance}` }, COMPLIANCE_LABEL[r.compliance]),
+      r.target_version ? h("small", { class: "sub" }, `target ${r.target_version}`) : null),
+    h("td", { class: lowFlash ? "lowflash" : "", title: lowFlash ? "Not enough space for the target image" : "" },
+      fmtBytes(f.flash_free), f.flash_total ? h("small", { class: "sub" }, `of ${fmtBytes(f.flash_total)}`) : null),
+    h("td", {}, mode),
+    h("td", { class: "result" }, checked),
+    h("td", { class: "actions" }, actions));
+}
+
+["input", "change"].forEach((evt) => {
+  ["#fw-search", "#fw-filter-compliance", "#fw-filter-platform", "#fw-filter-site"]
+    .forEach((sel) => $(sel).addEventListener(evt, renderFwDevices));
+});
+
+async function fwCheckNow(device) {
+  try {
+    const res = await api(`/api/firmware/devices/${device.id}/check`, { method: "POST" });
+    toast(`${device.name}: ${res.message}`);
+    loadFwVersions();
+    setTimeout(loadFwVersions, 5000);
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+$("#fw-check-all").addEventListener("click", async () => {
+  if (!confirm("Log in to every enabled device now and read its software version?")) return;
+  try {
+    toast((await api("/api/firmware/check-all", { method: "POST" })).message);
+    loadFwVersions();
+    setTimeout(loadFwVersions, 5000);
+  } catch (e) {
+    toast(e.message);
+  }
+});
+
+// Standards
+
+async function loadFwStandards() {
+  try {
+    [fw.standards, fw.rows] = await Promise.all([api("/api/firmware/standards"), api("/api/firmware/devices")]);
+  } catch (e) {
+    return toast(e.message);
+  }
+  const counts = {};
+  fw.rows.forEach((r) => { if (r.standard_id) counts[r.standard_id] = (counts[r.standard_id] || 0) + 1; });
+  $("#fw-standard-table tbody").replaceChildren(...fw.standards.map((s) => h("tr", {},
+    h("td", {}, s.platform_label),
+    h("td", {}, h("code", {}, s.model_pattern)),
+    h("td", {}, h("code", {}, s.target_version)),
+    h("td", {}, s.image_filename || "—"),
+    h("td", {}, counts[s.id] || 0),
+    h("td", {}, s.notes || ""),
+    h("td", {}, fmtTime(s.updated_at), h("small", { class: "sub" }, s.updated_by)),
+    h("td", { class: "actions" }, isAdmin() ? [
+      h("button", { class: "small", onclick: () => openStandardDialog(s) }, "Edit"),
+      h("button", { class: "small danger", onclick: () => deleteStandard(s) }, "Delete")] : []))));
+  $("#fw-standards-empty").hidden = fw.standards.length > 0;
+}
+
+async function openStandardDialog(std = null) {
+  const form = $("#fw-standard-form");
+  form.reset();
+  $(".error", form).hidden = true;
+  fw.images = await api("/api/firmware/images").catch(() => []);
+  form.platform.replaceChildren(...state.platforms.map((p) => h("option", { value: p.key }, p.label)));
+  const fillImages = () => {
+    const current = form.image_id.value;
+    form.image_id.replaceChildren(h("option", { value: "" }, "— none —"),
+      ...fw.images.filter((i) => i.platform === form.platform.value)
+        .map((i) => h("option", { value: i.id }, `${i.filename} (${i.version})`)));
+    form.image_id.value = current;
+  };
+  form.platform.onchange = fillImages;
+  form.image_id.onchange = () => {
+    const img = fw.images.find((i) => String(i.id) === form.image_id.value);
+    if (img) form.target_version.value = img.version;
+  };
+  $("#fw-standard-title").textContent = std ? "Edit standard" : "Add standard";
+  if (std) {
+    form.platform.value = std.platform;
+    form.model_pattern.value = std.model_pattern === "*" ? "" : std.model_pattern;
+    form.target_version.value = std.target_version;
+    form.notes.value = std.notes;
+  }
+  fillImages();
+  if (std && std.image_id) form.image_id.value = std.image_id;
+  $("#fw-standard-dialog").dataset.stdId = std ? std.id : "";
+  $("#fw-standard-dialog").showModal();
+}
+$("#fw-add-standard").addEventListener("click", () => openStandardDialog());
+
+$("#fw-standard-form").addEventListener("submit", async (ev) => {
+  if (ev.submitter && ev.submitter.value === "cancel") return;
+  ev.preventDefault();
+  const form = ev.target;
+  const id = $("#fw-standard-dialog").dataset.stdId;
+  const body = {
+    platform: form.platform.value, model_pattern: form.model_pattern.value || "*",
+    target_version: form.target_version.value, notes: form.notes.value,
+    image_id: form.image_id.value ? Number(form.image_id.value) : null,
+  };
+  try {
+    await api(id ? `/api/firmware/standards/${id}` : "/api/firmware/standards", { method: id ? "PUT" : "POST", body });
+    $("#fw-standard-dialog").close();
+    loadFwStandards();
+  } catch (e) {
+    const err = $(".error", form);
+    err.textContent = e.message;
+    err.hidden = false;
+  }
+});
+
+async function deleteStandard(std) {
+  if (!confirm(`Delete the standard for ${std.platform_label} ${std.model_pattern}?`)) return;
+  try {
+    await api(`/api/firmware/standards/${std.id}`, { method: "DELETE" });
+    loadFwStandards();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+// Image library
+
+async function loadFwImages() {
+  try {
+    fw.images = await api("/api/firmware/images");
+  } catch (e) {
+    return toast(e.message);
+  }
+  $("#fw-image-table tbody").replaceChildren(...fw.images.map((i) => h("tr", {},
+    h("td", { class: "name" }, i.filename, i.notes ? h("small", {}, i.notes.slice(0, 80)) : null),
+    h("td", {}, i.platform_label),
+    h("td", {}, h("code", {}, i.version)),
+    h("td", {}, h("code", {}, i.model_pattern)),
+    h("td", {}, fmtBytes(i.size)),
+    h("td", { title: `SHA-512: ${i.sha512}` }, h("code", {}, i.md5),
+      h("small", { class: "sub" }, i.verified ? "✓ matched vendor checksum" : "not verified against vendor checksum")),
+    h("td", {}, fmtTime(i.uploaded_at), h("small", { class: "sub" }, i.uploaded_by)),
+    h("td", { class: "actions" }, isAdmin()
+      ? h("button", { class: "small danger", onclick: () => deleteImage(i) }, "Delete") : []))));
+  $("#fw-images-empty").hidden = fw.images.length > 0;
+}
+
+function openUploadDialog() {
+  const form = $("#fw-upload-form");
+  form.reset();
+  $(".error", form).hidden = true;
+  $("#fw-upload-progress").hidden = true;
+  form.platform.replaceChildren(...state.platforms.map((p) => h("option", { value: p.key }, p.label)));
+  $("#fw-upload-dialog").showModal();
+}
+$("#fw-upload").addEventListener("click", openUploadDialog);
+
+// Guess the version from common image names, e.g. cat9k_iosxe.17.12.04.SPA.bin,
+// nxos.9.3.10.bin, cisco-asa-fp2k.9.18.4.SPA, x930-5.5.4-1.1.rel
+$("#fw-upload-form").file.addEventListener("change", (ev) => {
+  const form = ev.target.form;
+  const file = ev.target.files[0];
+  if (!file || form.version.value) return;
+  const m = file.name.match(/[.-](\d+\.\d+[.\d]*[a-z]?(?:-\d+\.\d+)?)(?:\.SPA)?\.(?:bin|rel|SPA|tar)$/i);
+  if (m) form.version.value = m[1];
+});
+
+$("#fw-upload-form").addEventListener("submit", (ev) => {
+  if (ev.submitter && ev.submitter.value === "cancel") return;
+  ev.preventDefault();
+  const form = ev.target;
+  const err = $(".error", form);
+  const bar = $("#fw-upload-progress");
+  const file = form.file.files[0];
+  const params = new URLSearchParams({
+    filename: file.name, platform: form.platform.value, version: form.version.value,
+    model_pattern: form.model_pattern.value || "*", checksum: form.checksum.value, notes: form.notes.value,
+  });
+  const submit = $("button[value=save]", form);
+  err.hidden = true;
+  bar.hidden = false;
+  bar.value = 0;
+  submit.disabled = true;
+  // XMLHttpRequest rather than fetch, for upload progress on large images.
+  const xhr = new XMLHttpRequest();
+  xhr.open("PUT", `/api/firmware/images/upload?${params}`);
+  xhr.setRequestHeader("Content-Type", "application/octet-stream");
+  xhr.upload.onprogress = (e) => { if (e.lengthComputable) bar.value = (100 * e.loaded) / e.total; };
+  xhr.onloadend = () => {
+    submit.disabled = false;
+    if (xhr.status === 201) {
+      $("#fw-upload-dialog").close();
+      toast(`${file.name} uploaded`);
+      loadFwImages();
+      return;
+    }
+    if (xhr.status === 401) return showLogin();
+    let msg = xhr.statusText || "Upload failed";
+    try {
+      const detail = JSON.parse(xhr.responseText).detail;
+      msg = Array.isArray(detail) ? detail.map((e) => `${e.loc.slice(-1)[0]}: ${e.msg}`).join("; ") : detail;
+    } catch (_) { /* not JSON */ }
+    bar.hidden = true;
+    err.textContent = msg;
+    err.hidden = false;
+  };
+  xhr.send(file);
+});
+
+async function deleteImage(img) {
+  if (!confirm(`Delete ${img.filename} from the server?`)) return;
+  try {
+    await api(`/api/firmware/images/${img.id}`, { method: "DELETE" });
+    loadFwImages();
   } catch (e) {
     toast(e.message);
   }

@@ -14,7 +14,7 @@ every working session. The details of each item are in [design.md](design.md) an
 - [x] Docker + Caddy and systemd deployment
 - [x] Shared SSH module (`core/ssh.py`) used by every tool
 - [ ] Deploy to the production VM (about 100 GB of disk once firmware images are stored)
-- [ ] Rename the repository to something tool-neutral, e.g. `Networking-Tools` (optional)
+- [x] Renamed the repository to `Networking-Tools`
 - [ ] Add database migrations (Alembic) before the first change to an existing table
 
 ### Config Backup
@@ -71,4 +71,4 @@ every working session. The details of each item are in [design.md](design.md) an
 | Date | Where | What happened |
 |---|---|---|
 | 2026-09 | Backup chat | Designed the platform and built the Config Backup MVP (merged to `main`) |
-| 2026-09-24 | Firmware chat | Planned the firmware tool; built phase 1 on branch `claude/device-firmware-upgrade-app-yey88v`; added `CLAUDE.md` and this file |
+| 2026-09-24 | Firmware chat | Planned the firmware tool; built phase 1 on branch `claude/device-firmware-upgrade-app-yey88v`; added `CLAUDE.md` and this file; repository renamed to `Networking-Tools` |

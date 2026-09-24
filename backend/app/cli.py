@@ -3,6 +3,8 @@
   python -m app.cli hash-password            # for NETOPS_LOCAL_ADMIN_PASSWORD_HASH
   python -m app.cli import-csv devices.csv   # bulk-load devices
   python -m app.cli backup <device-name>     # run one backup now and print the result
+  python -m app.cli firmware-check <device-name> [--raw]
+                                             # read one device's version and show what was parsed
 
 CSV columns: name,address,platform,site,credential,frequency_minutes,notes
 (`credential` is the name of an existing credential profile; `site`,
@@ -101,6 +103,50 @@ def _backup(args) -> int:
         return 0 if run.status == "success" else 2
 
 
+def _firmware_check(args) -> int:
+    from app.core.config import get_settings
+    from app.core.crypto import CredentialCipher
+    from app.core.db import init_engine, session_scope
+    from app.core.models import Device
+    from app.core.ssh import classify_error, run_commands, target_for
+    from app.tools.firmware_upgrade.facts import FACT_COMMANDS, parse_facts
+
+    settings = get_settings()
+    init_engine(settings.database_url)
+    with session_scope() as db:
+        device = db.scalar(select(Device).where(Device.name == args.name))
+        if device is None:
+            print(f"No device named {args.name}", file=sys.stderr)
+            return 1
+        platform = device.platform
+        try:
+            target = target_for(device, CredentialCipher(settings.credential_key_file),
+                                settings.ssh_timeout, settings.command_timeout)
+        except Exception as exc:  # noqa: BLE001
+            print(f"failed: {classify_error(exc)[1]}", file=sys.stderr)
+            return 2
+    commands = FACT_COMMANDS.get(platform)
+    if commands is None:
+        print(f"Version checks are not supported for {platform}", file=sys.stderr)
+        return 1
+    try:
+        outputs = run_commands(target, commands)
+    except Exception as exc:  # noqa: BLE001
+        print(f"failed: {classify_error(exc)[1]}", file=sys.stderr)
+        return 2
+    if args.raw:
+        for cmd, out in zip(commands, outputs):
+            print(f"===== {cmd} =====\n{out}\n")
+    try:
+        facts = parse_facts(platform, outputs)
+    except ValueError as exc:
+        print(f"failed: {exc} (run with --raw to see the output)", file=sys.stderr)
+        return 2
+    for key, value in vars(facts).items():
+        print(f"{key:12} {value if value is not None else '-'}")
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -111,6 +157,10 @@ def main(argv=None) -> int:
     p = sub.add_parser("backup")
     p.add_argument("name")
     p.set_defaults(func=_backup)
+    p = sub.add_parser("firmware-check")
+    p.add_argument("name")
+    p.add_argument("--raw", action="store_true", help="also print the raw command output")
+    p.set_defaults(func=_firmware_check)
     args = parser.parse_args(argv)
     return args.func(args)
 

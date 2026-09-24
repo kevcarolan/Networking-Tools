@@ -134,6 +134,29 @@ tr.disabled td { opacity: .55; }
 .badge.never, .badge.disabled { background: var(--idle-bg); color: var(--idle); }
 .errtext { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
 
+/* Firmware */
+a.button {
+  display: inline-block; text-decoration: none; color: inherit; font: inherit;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--surface); padding: 7px 10px;
+}
+a.button:hover { border-color: var(--accent); }
+.badge.compliant { background: var(--ok-bg); color: var(--ok); }
+.badge.behind { background: var(--fail-bg); color: var(--fail); }
+.badge.ahead { background: var(--warn-bg); color: var(--warn); }
+.badge.no_standard, .badge.unknown { background: var(--idle-bg); color: var(--idle); }
+.dot.compliant { background: var(--ok); }
+.dot.behind { background: var(--fail); }
+.dot.ahead { background: var(--warn); }
+.dot.no_standard, .dot.unknown { background: var(--idle); }
+.tile.compliant .num { color: var(--ok); }
+.tile.behind .num { color: var(--fail); }
+.tile.ahead .num { color: var(--warn); }
+.tile.no_standard .num, .tile.unknown .num { color: var(--idle); }
+td code, td .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+td small.sub { display: block; color: var(--muted); font-size: 12px; }
+.lowflash { color: var(--fail); font-weight: 600; }
+progress { width: 100%; }
+
 /* Dialogs */
 dialog {
   border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);

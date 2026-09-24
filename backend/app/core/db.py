@@ -33,6 +33,7 @@ def init_engine(database_url: str):
     # Import every model module so its tables are registered before create_all.
     from app.core import models  # noqa: F401
     from app.tools.config_backup import models as backup_models  # noqa: F401
+    from app.tools.firmware_upgrade import models as firmware_models  # noqa: F401
 
     Base.metadata.create_all(engine)
     SessionLocal.configure(bind=engine)

@@ -39,6 +39,22 @@ class FakeFetcher:
             name=target.name, address=target.address)
 
 
+class FakeCollector:
+    """Stands in for SSH in the firmware tool: returns canned show output."""
+
+    def __init__(self):
+        from tests import firmware_samples as fw
+
+        self.outputs: dict[str, list[str]] = {}
+        self.errors: dict[str, Exception] = {}
+        self.default = [fw.IOS_XE_VERSION, fw.IOS_DIR]
+
+    def __call__(self, target, commands):
+        if target.name in self.errors:
+            raise self.errors[target.name]
+        return self.outputs.get(target.name, self.default)
+
+
 @pytest.fixture
 def settings(tmp_path):
     return Settings(
@@ -54,8 +70,13 @@ def fetcher():
 
 
 @pytest.fixture
-def app(settings, fetcher):
-    return create_app(settings, fetcher=fetcher, start_scheduler=False)
+def fw_collector():
+    return FakeCollector()
+
+
+@pytest.fixture
+def app(settings, fetcher, fw_collector):
+    return create_app(settings, fetcher=fetcher, start_scheduler=False, fw_collector=fw_collector)
 
 
 @pytest.fixture

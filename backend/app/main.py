@@ -12,10 +12,13 @@ from app.core import auth, inventory
 from app.core.config import Settings, get_settings
 from app.core.crypto import CredentialCipher
 from app.core.db import init_engine
+from app.core.ssh import run_commands
 from app.tools.config_backup import api as backup_api
 from app.tools.config_backup.collector import fetch_config
 from app.tools.config_backup.service import BackupService
 from app.tools.config_backup.storage import GitConfigStore
+from app.tools.firmware_upgrade import api as firmware_api
+from app.tools.firmware_upgrade.service import FirmwareService
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -27,22 +30,26 @@ _SECURITY_HEADERS = {
 
 
 def create_app(settings: Settings | None = None, fetcher=fetch_config,
-               start_scheduler: bool | None = None) -> FastAPI:
+               start_scheduler: bool | None = None, fw_collector=run_commands) -> FastAPI:
     settings = settings or get_settings()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     init_engine(settings.database_url)
     cipher = CredentialCipher(settings.credential_key_file)
     store = GitConfigStore(settings.configs_dir)
     backup_service = BackupService(settings, cipher, store, fetcher=fetcher)
+    firmware_service = FirmwareService(settings, cipher, collector=fw_collector)
     run_scheduler = settings.scheduler_enabled if start_scheduler is None else start_scheduler
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         backup_service.recover_interrupted()
+        firmware_service.recover_interrupted()
         if run_scheduler:
             backup_service.start()
+            firmware_service.start()
         yield
         backup_service.stop()
+        firmware_service.stop()
 
     app = FastAPI(title="NetOps Tools", lifespan=lifespan)
     app.state.settings = settings
@@ -50,6 +57,7 @@ def create_app(settings: Settings | None = None, fetcher=fetch_config,
     app.state.authenticator = auth.Authenticator(settings)
     app.state.login_throttle = auth.LoginThrottle()
     app.state.backup_service = backup_service
+    app.state.firmware_service = firmware_service
 
     app.add_middleware(
         SessionMiddleware, secret_key=settings.secret_key, session_cookie="netops_session",
@@ -67,6 +75,7 @@ def create_app(settings: Settings | None = None, fetcher=fetch_config,
     app.include_router(auth.router)
     app.include_router(inventory.router)
     app.include_router(backup_api.router)
+    app.include_router(firmware_api.router)
 
     @app.get("/api/health", include_in_schema=False)
     def health():

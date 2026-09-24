@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     history_retention_days: int = 90
     viewers_can_read_configs: bool = False
 
+    # Firmware tool
+    firmware_check_minutes: int = 1440  # how often each device's version is re-read
+    firmware_workers: int = 5
+    firmware_max_upload_mb: int = 4096
+
+
     @property
     def database_url(self) -> str:
         return f"sqlite:///{self.data_dir / 'app.db'}"
@@ -56,6 +62,10 @@ class Settings(BaseSettings):
     @property
     def configs_dir(self) -> Path:
         return self.data_dir / "configs"
+
+    @property
+    def firmware_dir(self) -> Path:
+        return self.data_dir / "firmware"
 
     def prepare(self) -> "Settings":
         """Create the data directory and fill in generated secrets."""

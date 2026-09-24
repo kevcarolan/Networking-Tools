@@ -35,8 +35,11 @@ Allied Telesis devices.
    │  tools/config_backup/                                     │
    │          scheduler ─► worker pool (10) ─► Netmiko SSH     │──► switches / firewalls
    │          clean config ─► git commit ─► record result      │
-   └───────────────┬──────────────────────────┬────────────────┘
-             data/app.db (SQLite)      data/configs/ (git)
+   │  tools/firmware_upgrade/                                  │
+   │          daily show version ─► parse ─► compare with      │──► switches / firewalls
+   │          standards · image library                        │
+   └──────┬───────────────────────┬──────────────────┬────────┘
+   data/app.db (SQLite)   data/configs/ (git)   data/firmware/ (images)
 ```
 
 ### Backup flow
@@ -78,9 +81,10 @@ Allied Telesis devices.
 **Phase 3: more value from the configs**
 - Compliance checks: NTP, SNMP, AAA/TACACS, banner and logging present on every device
 - Search across all configs ("which devices have VLAN 30?")
-- Firmware/version inventory report
+- ~~Firmware/version inventory report~~ done as the firmware tool, see [firmware.md](firmware.md)
 
 **Phase 4: more tools on the same platform**
+- Firmware upgrades: staging, pre/post checks and upgrade jobs ([firmware.md](firmware.md))
 - "Where is this MAC/IP?" (MAC and ARP table lookup across switches)
 - Reachability / interface status monitor
 - Port and VLAN documentation export

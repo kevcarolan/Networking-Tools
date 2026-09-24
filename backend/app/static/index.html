@@ -27,6 +27,7 @@
       <span class="brand">NetOps Tools</span>
       <nav id="nav">
         <button data-view="backups" class="active">Config backups</button>
+        <button data-view="firmware">Firmware</button>
         <button data-view="credentials" data-admin>Credentials</button>
         <button data-view="audit" data-admin>Audit log</button>
       </nav>
@@ -61,6 +62,75 @@
             <tbody></tbody>
           </table>
           <p id="empty-devices" class="empty" hidden>No devices yet.</p>
+        </div>
+      </section>
+
+      <!-- Firmware -->
+      <section id="view-firmware" class="view" hidden>
+        <div class="tabs" id="fw-tabs">
+          <button data-tab="versions" class="active">Versions</button>
+          <button data-tab="standards">Standards</button>
+          <button data-tab="images">Image library</button>
+        </div>
+
+        <div id="fw-versions" class="fw-pane">
+          <div id="fw-summary" class="tiles"></div>
+          <div class="toolbar">
+            <input id="fw-search" type="search" placeholder="Search name, model, version…">
+            <select id="fw-filter-compliance">
+              <option value="">All devices</option>
+              <option value="behind">Behind standard</option>
+              <option value="compliant">On standard</option>
+              <option value="ahead">Ahead of standard</option>
+              <option value="no_standard">No standard set</option>
+              <option value="unknown">Version unknown</option>
+            </select>
+            <select id="fw-filter-platform"><option value="">All platforms</option></select>
+            <select id="fw-filter-site"><option value="">All sites</option></select>
+            <span class="spacer"></span>
+            <a class="button" href="/api/firmware/devices.csv" download>Export CSV</a>
+            <button id="fw-check-all" data-admin>Check all now</button>
+          </div>
+          <div class="table-wrap">
+            <table id="fw-table">
+              <thead><tr>
+                <th></th><th>Device</th><th>Site</th><th>Platform</th><th>Model</th><th>Version</th>
+                <th>Standard</th><th>Flash free</th><th>Mode / HA</th><th>Last checked</th><th></th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+            <p id="fw-empty" class="empty" hidden></p>
+          </div>
+        </div>
+
+        <div id="fw-standards" class="fw-pane" hidden>
+          <div class="toolbar">
+            <p class="muted">The approved version for each platform and model. <code>*</code> matches any model; the most specific pattern wins.</p>
+            <span class="spacer"></span>
+            <button id="fw-add-standard" class="primary" data-admin>+ Add standard</button>
+          </div>
+          <div class="table-wrap">
+            <table id="fw-standard-table">
+              <thead><tr><th>Platform</th><th>Model pattern</th><th>Approved version</th><th>Image</th><th>Devices</th><th>Notes</th><th>Updated</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+            <p id="fw-standards-empty" class="empty" hidden>No standards yet. Add one to see which devices are behind.</p>
+          </div>
+        </div>
+
+        <div id="fw-images" class="fw-pane" hidden>
+          <div class="toolbar">
+            <p class="muted">Firmware files kept on the server, ready for upgrades. Paste the vendor's MD5 or SHA-512 when uploading to verify the download.</p>
+            <span class="spacer"></span>
+            <button id="fw-upload" class="primary" data-admin>+ Upload image</button>
+          </div>
+          <div class="table-wrap">
+            <table id="fw-image-table">
+              <thead><tr><th>File</th><th>Platform</th><th>Version</th><th>Models</th><th>Size</th><th>MD5</th><th>Uploaded</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+            <p id="fw-images-empty" class="empty" hidden>No images uploaded yet.</p>
+          </div>
         </div>
       </section>
 
@@ -156,6 +226,46 @@
     <div id="detail-runs" class="detail-pane"></div>
     <div id="detail-versions" class="detail-pane" hidden></div>
     <pre id="detail-text" class="config" hidden></pre>
+  </dialog>
+
+  <!-- Firmware standard add/edit -->
+  <dialog id="fw-standard-dialog">
+    <form id="fw-standard-form" method="dialog" class="form">
+      <h2 id="fw-standard-title">Add standard</h2>
+      <div class="grid2">
+        <label>Platform <select name="platform" required></select></label>
+        <label>Model pattern <input name="model_pattern" maxlength="100" placeholder="C9300-* (blank = all models)"></label>
+        <label>Approved version <input name="target_version" required maxlength="100" placeholder="17.12.04"></label>
+        <label>Image (optional) <select name="image_id"></select></label>
+      </div>
+      <label>Notes <textarea name="notes" rows="2" maxlength="2000" placeholder="e.g. Cisco suggested release, change CHG0012345"></textarea></label>
+      <p class="error" hidden></p>
+      <div class="dialog-actions">
+        <button value="cancel" formnovalidate class="ghost">Cancel</button>
+        <button value="save" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Firmware image upload -->
+  <dialog id="fw-upload-dialog">
+    <form id="fw-upload-form" method="dialog" class="form">
+      <h2>Upload firmware image</h2>
+      <label>File <input name="file" type="file" required></label>
+      <div class="grid2">
+        <label>Platform <select name="platform" required></select></label>
+        <label>Version <input name="version" required maxlength="100" placeholder="17.12.04"></label>
+        <label>Models <input name="model_pattern" maxlength="100" placeholder="C9300-* (blank = all)"></label>
+        <label>Vendor checksum (MD5 or SHA-512) <input name="checksum" maxlength="128" autocomplete="off"></label>
+      </div>
+      <label>Notes <textarea name="notes" rows="2" maxlength="2000"></textarea></label>
+      <progress id="fw-upload-progress" max="100" value="0" hidden></progress>
+      <p class="error" hidden></p>
+      <div class="dialog-actions">
+        <button value="cancel" formnovalidate class="ghost">Cancel</button>
+        <button value="save" class="primary">Upload</button>
+      </div>
+    </form>
   </dialog>
 
   <div id="toast" class="toast" hidden></div>

@@ -12,6 +12,7 @@ device inventory, one AD login and one database:
 
 See [docs/design.md](docs/design.md) for the platform design and roadmap, and
 [docs/firmware.md](docs/firmware.md) for the firmware tool's design and upgrade plan.
+Progress, decisions and open questions are tracked in [docs/PROGRESS.md](docs/PROGRESS.md).
 
 | Supported platform | Key | Method |
 |---|---|---|

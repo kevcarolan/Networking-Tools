@@ -27,7 +27,7 @@ PYVER="3.12"                  # Python on Ubuntu 24.04
 # Ubuntu packages the server needs (their dependencies are added automatically).
 OS_PACKAGES=(
   python3.12-venv git sqlite3 nginx
-  nftables chrony auditd aide apparmor-utils rsyslog-gnutls apt-offline
+  nftables chrony auditd aide apparmor-utils rsyslog-gnutls apt-offline open-vm-tools
 )
 
 say() { printf '\n\033[1m== %s\033[0m\n' "$*"; }

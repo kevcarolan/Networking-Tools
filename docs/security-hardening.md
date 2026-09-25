@@ -25,14 +25,14 @@ The steps below are ordered so each one builds on the last. Template files are i
 **Quick checklist**
 
 - [ ] §1 Server in the management network; GUI and SSH reachable only from admin subnets
-- [ ] §2 VM encrypted; hypervisor console and snapshots restricted
+- [ ] §2 VM encrypted in vSphere (EFI, Secure Boot, vTPM); console, snapshots and export restricted
 - [ ] §3 Minimal OS; unneeded packages and services removed
 - [ ] §4 Named admin accounts, SSH keys only (hardware keys if possible), sudo logged
 - [ ] §5 Host firewall: default deny, **inbound and outbound**
 - [ ] §6 Kernel and network settings
 - [ ] §7 Service sandboxing checked (`systemd-analyze security netops`)
 - [ ] §8 HTTPS with an internal CA certificate; app settings locked down
-- [ ] §9 Logs forwarded off the server, with alerts
+- [ ] §9 PRTG sensors and syslog forwarding in place, with alerts ([monitoring-prtg.md](monitoring-prtg.md))
 - [ ] §10 File-integrity baseline (AIDE); audit rules loaded
 - [ ] §11 Devices accept SSH only from the server and jump hosts, with least-privilege accounts
 - [ ] §12 Patching, backups, key custody and transfer process agreed and written down
@@ -54,17 +54,54 @@ The steps below are ordered so each one builds on the last. Template files are i
 * It needs **no** inbound access from the devices. (Firmware phase 2 will add HTTPS
   image downloads for AlliedWare Plus switches; that rule will be added then.)
 
-## 2. Virtual machine and hypervisor
+## 2. The VM on VMware vSphere
 
-* **Encrypt the VM** (vSphere VM Encryption / Hyper-V shielded VM with vTPM). If the
-  hypervisor can't, use LUKS in the Ubuntu installer and accept entering the
-  passphrase at the console after each reboot.
-* **Snapshots and VM backups contain the credential key and the database.** Restrict who
-  can take, copy or export them, as strictly as who can log in to the server.
-* Restrict **console access** to the VM to the same admin group.
-* Remove unused virtual hardware (CD drive, floppy, USB, sound). Disable shared folders,
-  copy/paste and drag-and-drop.
-* Keep the host's time sync off; the VM uses chrony and your NTP server.
+* **Encrypt the VM** with vSphere VM Encryption:
+  * Set up a key provider in vCenter if there isn't one. The built-in **vSphere Native Key
+    Provider** (vSphere 7.0 U2 and later) needs no external KMS. **Back up the Native Key
+    Provider** as vCenter prompts you to; without it, encrypted VMs can't be started after
+    a vCenter rebuild.
+  * Create the VM with **EFI firmware, Secure Boot and a vTPM**, and apply the **VM
+    Encryption Policy** storage policy to the VM and its disks.
+  * Set **Encrypted vMotion** to *Required*.
+  * Encryption also protects the virtual disks if someone downloads them through the
+    datastore browser.
+* **Hardware:** VMXNET3 network adapter, VMware Paravirtual SCSI controller. Remove the
+  floppy, USB controller and sound card, and the CD/DVD drive after the install. VMware
+  Tools come from the `open-vm-tools` package (in the bundle).
+* **Advanced settings.** Under VM Options → Advanced → Edit Configuration, set these
+  explicitly, even where they are already the default, so the hardening is documented:
+
+  | Setting | Value |
+  |---|---|
+  | `isolation.tools.copy.disable` | `TRUE` |
+  | `isolation.tools.paste.disable` | `TRUE` |
+  | `isolation.tools.dnd.disable` | `TRUE` |
+  | `isolation.tools.setGUIOptions.enable` | `FALSE` |
+  | `isolation.tools.diskShrink.disable` | `TRUE` |
+  | `isolation.tools.diskWiper.disable` | `TRUE` |
+  | `isolation.device.connectable.disable` | `TRUE` |
+  | `RemoteDisplay.maxConnections` | `1` |
+  | `tools.setInfo.sizeLimit` | `1048576` |
+  | `log.keepOld` | `10` |
+
+* **Time:** under VM Options → VMware Tools, untick *Synchronize guest time with host*.
+  The VM gets its time from your NTP server through chrony.
+* **Access in vCenter:** create a role for the NetOps VM, and give it only to the server's
+  admins. It should cover:
+  * console interaction;
+  * power operations;
+  * snapshots;
+  * clone, export and OVF export;
+  * datastore browsing on its datastore.
+  Anyone with console or snapshot rights can get to the credential key, so they need
+  the same level of trust as a server admin.
+* **Snapshots contain the key and the database.** With VM Encryption they're encrypted
+  too. Use a snapshot only around a change (for example before a NetOps upgrade), then
+  delete it; don't keep them for weeks.
+* **VM backups (Veeam or similar):** backup tools usually read encrypted VMs decrypted.
+  Turn on encryption in the backup job, and restrict who can restore or mount this VM's
+  backups.
 
 ## 3. Minimal operating system
 
@@ -174,7 +211,7 @@ What the installer set up, for your security review:
 * **Secrets:** `credential.key` and `netops.env` are `root:netops 0640`. Device passwords
   are encrypted in the database with that key, so a copy of the database alone exposes nothing.
 * **Audit events** (logins, failed logins, every change) are written to the database
-  and to the service log, which §9 forwards to your SIEM.
+  and to the service log, which §9 forwards to PRTG.
 
 ## 8. HTTPS and app settings
 
@@ -200,20 +237,18 @@ What the installer set up, for your security review:
 
 * Keep the **AD groups** small and review their members every quarter.
 
-## 9. Logging and alerting
+## 9. Logging and alerting (PRTG)
 
-Logs that stay only on the server can be deleted by an attacker. Forward them over TLS
-to your SIEM or log server (`rsyslog-gnutls` is in the bundle):
+Logs that stay only on the server can be deleted by an attacker, and no one reads them
+unless something raises an alert. Monitoring is set up in PRTG; see
+[monitoring-prtg.md](monitoring-prtg.md). In short:
 
-```bash
-sudo tee /etc/rsyslog.d/90-siem.conf <<'EOF'
-global(DefaultNetstreamDriverCAFile="/etc/netops/siem-ca.pem")
-*.* action(type="omfwd" target="siem.corp.local" port="6514" protocol="tcp"
-           StreamDriver="gtls" StreamDriverMode="1" StreamDriverAuthMode="x509/name"
-           queue.type="LinkedList" queue.filename="siem" queue.saveOnShutdown="on")
-EOF
-sudo systemctl restart rsyslog
-```
+* a **health sensor** for backups, firmware, disk space and backup age;
+* **VMware** and **certificate** sensors;
+* a **Syslog Receiver** that the server forwards its security events to
+  (`deploy/hardening/rsyslog-prtg.conf`).
+
+The server needs no SNMP, agent or monitoring account.
 
 Alert on:
 
@@ -222,9 +257,14 @@ Alert on:
 | `nft-out-drop` | kernel log | Something on the server tried to reach a place it shouldn't. Possible compromise |
 | `action=login` by the local admin account | `netops.audit` | Break-glass was used |
 | Many `action=login.failed` | `netops.audit` | Password guessing |
-| `netops-secrets`, `netops-code`, `sshd`, `sudoers`, `identity` keys | auditd (`/var/log/audit/audit.log`) | Someone read the key or changed code, SSH, sudo or accounts |
-| SSH logins | `sshd` in auth.log | Expected only from named admins, at expected times |
+| `netops-secrets`, `netops-code`, `sshd`, `sudoers`, `identity` keys | auditd | Someone read the key or changed code, SSH, sudo or accounts |
+| SSH logins | `sshd` | Expected only from named admins, at expected times |
 | Service restarts | systemd | Unexpected restarts may be tampering or a crash |
+| Health sensor down or in error | PRTG | App stopped, backups failing, disk filling, nightly backup missed |
+
+PRTG alerts, but it isn't a tamper-proof log archive. If a SIEM or central log server
+arrives later, forward everything there as well (`rsyslog-gnutls` is in the bundle, for
+syslog over TLS).
 
 ## 10. File integrity and audit trail
 

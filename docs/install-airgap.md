@@ -29,31 +29,31 @@ device credentials. This guide says at which point.
 
 | Item | Details |
 |---|---|
-| Server | A VM with 2 vCPU, 4 GB RAM, a 30 GB system disk, and a separate **100 GB data disk** (firmware images). x86_64 |
+| Server | A VMware VM: 2 vCPU, 4 GB RAM, a 30 GB system disk, and a separate **100 GB data disk** (firmware images). x86_64. vCenter with a key provider for VM Encryption (the built-in Native Key Provider is enough) |
 | Operating system | Ubuntu Server 24.04 LTS ISO (the same release as the bundle) |
 | Build machine | Any Ubuntu 24.04 with internet access and sudo: a VM, Windows WSL (`wsl --install -d Ubuntu-24.04`), or an `ubuntu:24.04` Docker container. Use a clean, patched machine that is used only for this |
 | DNS name | e.g. `netops.corp.local`, with a DNS record on the air-gapped network |
 | TLS certificate | Issued by your internal CA for that name, with the key. PEM format; include any intermediate CA in the certificate file |
 | AD | Two groups: `NetOps-Admins` and `NetOps-Viewers`. The CA certificate that signed the domain controllers' LDAPS certificates |
 | Network facts | For the firewall: admin/jump-host subnets, the subnets allowed to use the GUI, device management subnets, and the DC, DNS, NTP and syslog addresses |
+| Monitoring | The PRTG probe's address, and PRTG access to vCenter ([monitoring-prtg.md](monitoring-prtg.md)) |
 | People | Named admin accounts for the server (no shared logins), each with an SSH key. Hardware keys (YubiKey or similar) if you have them |
 
 ---
 
 ## 2. Build the server (operating system)
 
-1. **Create the VM:**
-   * Two virtual disks: 30 GB for the system and 100 GB for data.
-   * Remove the virtual floppy, sound and USB controllers, and the CD drive once
-     the install is done.
-   * Turn off shared folders, clipboard and drag-and-drop in the hypervisor.
-   * If your hypervisor supports VM encryption with a vTPM (vSphere VM Encryption,
-     Hyper-V shielded VMs), turn it on. See security-hardening.md §2.
+1. **Create the VM in vCenter.** The details are in security-hardening.md §2:
+   * Guest OS: Ubuntu Linux (64-bit). **EFI firmware with Secure Boot**, and a **vTPM**.
+   * Two disks on a PVSCSI controller: 30 GB for the system and 100 GB for data.
+     VMXNET3 network adapter on the management port group.
+   * Apply the **VM Encryption Policy** to the VM and both disks.
+   * Remove the floppy, USB and sound devices. Set the advanced settings from §2. Untick
+     *Synchronize guest time with host*.
 2. **Install Ubuntu Server 24.04:**
    * Choose **Ubuntu Server (minimized)**.
-   * Storage: use LVM on the 30 GB disk. Tick **Encrypt the LVM group with LUKS** if
-     the hypervisor can't encrypt the VM; you'll then enter the passphrase at the
-     console on every reboot.
+   * Storage: use LVM on the 30 GB disk. Leave LUKS off: vSphere VM Encryption already
+     encrypts the disks, without a passphrase at every boot.
    * Tick **Install OpenSSH server**. Don't import SSH keys from GitHub or Launchpad.
    * **Don't** select any of the "featured server snaps".
    * Create your own named admin account.
@@ -194,6 +194,7 @@ It does **not** start the service on a first install.
    then check that a `NetOps-Viewers` account can sign in and can't change anything.
 6. **Harden the server now:** work through [security-hardening.md](security-hardening.md)
    §3–§9 (SSH, firewall, kernel, accounts, logging). Do it before you add device credentials.
+   Then set up the PRTG sensors ([monitoring-prtg.md](monitoring-prtg.md)).
 7. Add the credential profiles and devices. Bulk import:
    `sudo cp devices.csv /tmp/ && sudo netops-cli import-csv /tmp/devices.csv`.
 8. **Check the firmware parsers** on one device of each platform and model:
@@ -229,10 +230,13 @@ Security updates still matter on an air-gapped server: someone who gets onto the
 network can exploit unpatched software. Patch at least monthly, and straight away for
 critical advisories.
 
-* **If you have an internal Ubuntu mirror** (Landscape, Nexus, Artifactory, apt-mirror),
+For now, patch with **`apt-offline`**. Once testing and sign-off are done, the plan is to
+connect the server to an internal Ubuntu mirror, which makes this a normal `apt upgrade`.
+
+* **With an internal Ubuntu mirror (later)** (Landscape, Nexus, Artifactory, apt-mirror),
   point `/etc/apt/sources.list.d/ubuntu.sources` at it and use
   `sudo apt update && sudo apt upgrade`.
-* **Otherwise, use `apt-offline`** (it's in the bundle):
+* **With `apt-offline` (now).** It's in the bundle:
   ```bash
   # 1. On the server: make a request file listing what needs updating
   sudo apt-offline set /root/netops-install/updates.sig --update --upgrade

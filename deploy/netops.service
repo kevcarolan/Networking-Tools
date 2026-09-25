@@ -15,6 +15,7 @@ Environment=NETOPS_DATA_DIR=/var/lib/netops NETOPS_CREDENTIAL_KEY_FILE=/etc/neto
 ExecStart=/opt/netops/current/venv/bin/python -m uvicorn --factory app.main:create_app \
     --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips 127.0.0.1 \
     --no-server-header
+SyslogIdentifier=netops
 Restart=on-failure
 RestartSec=5
 UMask=0027

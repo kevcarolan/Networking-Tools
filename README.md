@@ -71,7 +71,8 @@ Run the tests with `pytest` from `backend/`.
 **Air-gapped network (recommended for production):** build an offline bundle on an
 internet-connected machine, transfer it, and install it with systemd and nginx. See
 [docs/install-airgap.md](docs/install-airgap.md), then harden the server with
-[docs/security-hardening.md](docs/security-hardening.md).
+[docs/security-hardening.md](docs/security-hardening.md) and set up monitoring with
+[docs/monitoring-prtg.md](docs/monitoring-prtg.md).
 
 The two options below are for servers that can reach the internet.
 

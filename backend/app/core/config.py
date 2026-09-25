@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     # Interactive API docs at /docs. Off by default: they describe every endpoint
     # and aren't needed to run the tools.
     api_docs: bool = False
+    # Token PRTG sends to /api/monitoring/prtg. Empty = monitoring endpoint off.
+    monitoring_token: str = ""
 
     # Active Directory / LDAP
     ldap_url: str = ""  # e.g. ldaps://dc1.corp.local

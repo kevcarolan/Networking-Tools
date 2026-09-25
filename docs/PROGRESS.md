@@ -17,7 +17,9 @@ every working session. The details of each item are in [design.md](design.md) an
 - [x] Security hardening guide and templates (nftables in/out, SSH, sysctl, auditd, AIDE, logging, device access)
 - [ ] Build the production VM and install from the bundle (30 GB system disk + 100 GB data disk)
 - [ ] Complete the hardening checklist in security-hardening.md and sign it off
-- [ ] Forward logs to the SIEM and set up the alerts in security-hardening.md §9
+- [x] PRTG integration: health endpoint (`/api/monitoring/prtg`), syslog forwarding template, sensor guide
+- [ ] Set up the PRTG sensors and syslog alerts ([monitoring-prtg.md](monitoring-prtg.md))
+- [ ] After sign-off: connect the server to the internal Ubuntu mirror (replaces apt-offline)
 - [ ] First restore test from a nightly backup
 - [ ] GitHub Actions: run the tests (and a bundle build) on every pull request
 - [x] Renamed the repository to `Networking-Tools`
@@ -68,14 +70,16 @@ every working session. The details of each item are in [design.md](design.md) an
 | 2026-09-25 | Production runs on an air-gapped network: systemd + nginx from an offline bundle, not Docker | No image registry to pull from; fewer packages and no Docker daemon to secure; nginx is patched with the normal Ubuntu updates |
 | 2026-09-25 | Outbound traffic from the server is blocked by default | The server holds credentials for every device, so a compromise must not spread |
 | 2026-09-25 | The credential key is kept out of backups and stored offline | A stolen backup can't be used to decrypt device passwords |
+| 2026-09-25 | VMware vSphere with VM Encryption (EFI, Secure Boot, vTPM); no LUKS | Disks and snapshots encrypted without a passphrase at every boot |
+| 2026-09-25 | Patch with apt-offline until an internal Ubuntu mirror is connected after sign-off | No mirror exists yet |
+| 2026-09-25 | Monitoring with PRTG: HTTP health endpoint, VMware, certificate and syslog sensors; no SNMP or agent on the server | Uses the existing monitoring; nothing extra listening on the server |
 
 ## Open questions
 
 - Is the failover pair ASA or FTD (FDM HA)? The plan currently assumes ASA.
 - Are there any switch stacks (Cat9k StackWise, AW+ VCStack) or NX-OS vPC pairs? These affect the upgrade order.
-- Which hypervisor will host the VM, and can it encrypt the VM (vTPM)? Otherwise LUKS with a console passphrase.
-- Is there an internal Ubuntu mirror on the air-gapped side, or do we patch with apt-offline?
-- Is there a SIEM or log server to forward logs to (address, port, CA)?
+- Does vCenter already have a key provider for VM Encryption, or do we set up the Native Key Provider?
+- Does the PRTG version support custom request headers (HTTP Data Advanced) and syslog over TCP/TLS?
 
 ## Session log
 
@@ -84,3 +88,4 @@ every working session. The details of each item are in [design.md](design.md) an
 | 2026-09 | Backup chat | Designed the platform and built the Config Backup MVP (merged to `main`) |
 | 2026-09-24 | Firmware chat | Planned the firmware tool; built phase 1 on branch `claude/device-firmware-upgrade-app-yey88v`; added `CLAUDE.md` and this file; repository renamed to `Networking-Tools` |
 | 2026-09-25 | NETWORK-TOOLS chat | Air-gapped install kit (bundle build + installer, tested end to end on Ubuntu 24.04), hardened service, nginx, backups; security hardening guide; audit events to the log; API docs off by default |
+| 2026-09-25 | NETWORK-TOOLS chat | VMware hardening, apt-offline patching, PRTG monitoring endpoint and guide |

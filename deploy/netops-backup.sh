@@ -27,4 +27,7 @@ fi
 cp /etc/netops/netops.env "$TMP/netops.env" 2>/dev/null || true
 tar -C "$TMP" -czf "$DEST/netops-$LABEL-$STAMP.tar.gz" .
 find "$DEST" -name 'netops-*.tar.gz' -mtime +"$KEEP_DAYS" -delete
+# Tell the app (and so PRTG) when the last backup succeeded.
+date -u +%FT%TZ > "$TMP/last-backup"
+install -m 0640 -o root -g netops "$TMP/last-backup" "$DATA/last-backup" 2>/dev/null || true
 echo "Backup written: $DEST/netops-$LABEL-$STAMP.tar.gz"

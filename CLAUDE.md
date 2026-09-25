@@ -30,6 +30,10 @@ Design docs: [docs/design.md](docs/design.md) (platform and backup tool),
   with `build-bundle.sh` (wheels only, no compiling) and be added to it. Security is a priority:
   see [docs/security-hardening.md](docs/security-hardening.md) before changing deployment,
   ports or outbound connections (the host firewall blocks outbound traffic by default).
+* The server is a **VMware vSphere** VM (VM Encryption, vTPM). There is no internal Ubuntu mirror
+  yet, so the OS is patched with apt-offline; a mirror will follow after sign-off.
+* Monitoring is **PRTG**: it polls `/api/monitoring/prtg` and receives syslog. Keep that endpoint's
+  channel names stable, because PRTG keys its channels and alert limits on them.
 
 ## Code layout and conventions
 

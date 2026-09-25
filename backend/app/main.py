@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
+from app import monitoring
 from app.core import auth, inventory
 from app.core.config import Settings, get_settings
 from app.core.crypto import CredentialCipher
@@ -79,6 +80,7 @@ def create_app(settings: Settings | None = None, fetcher=fetch_config,
     app.include_router(inventory.router)
     app.include_router(backup_api.router)
     app.include_router(firmware_api.router)
+    app.include_router(monitoring.router)
 
     @app.get("/api/health", include_in_schema=False)
     def health():

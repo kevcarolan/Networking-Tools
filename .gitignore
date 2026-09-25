@@ -9,3 +9,6 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+
+# Offline bundles built by deploy/airgap/build-bundle.sh
+dist/

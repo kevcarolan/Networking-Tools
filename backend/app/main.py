@@ -51,7 +51,10 @@ def create_app(settings: Settings | None = None, fetcher=fetch_config,
         backup_service.stop()
         firmware_service.stop()
 
-    app = FastAPI(title="NetOps Tools", lifespan=lifespan)
+    docs = settings.api_docs
+    app = FastAPI(title="NetOps Tools", lifespan=lifespan, redoc_url=None,
+                  docs_url="/docs" if docs else None,
+                  openapi_url="/openapi.json" if docs else None)
     app.state.settings = settings
     app.state.cipher = cipher
     app.state.authenticator = auth.Authenticator(settings)

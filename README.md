@@ -66,7 +66,16 @@ Open `http://<server>:8000`, sign in as `admin`, add a credential profile under
 
 Run the tests with `pytest` from `backend/`.
 
-## Production install (Linux server, Docker)
+## Production install
+
+**Air-gapped network (recommended for production):** build an offline bundle on an
+internet-connected machine, transfer it, and install it with systemd and nginx. See
+[docs/install-airgap.md](docs/install-airgap.md), then harden the server with
+[docs/security-hardening.md](docs/security-hardening.md).
+
+The two options below are for servers that can reach the internet.
+
+### Linux server with Docker
 
 Recommended host: a small Ubuntu 24.04 / Debian 12 VM (2 vCPU, 4 GB RAM; 20 GB of disk is plenty
 for backups of a few hundred devices, but allow about 100 GB if you keep firmware images on it) that can reach the devices' management addresses on TCP/22.
@@ -83,20 +92,11 @@ docker compose -f deploy/docker-compose.yml up -d --build
 Caddy serves the app over HTTPS on port 443. **Back up `deploy/secrets/credential.key`
 somewhere safe.** Without it, the stored device passwords cannot be decrypted.
 
-### Install without Docker (systemd)
+### Linux server without Docker (systemd + nginx)
 
-```bash
-sudo useradd --system --home /opt/netops netops
-sudo git clone <this repo> /opt/netops
-sudo python3 -m venv /opt/netops/venv
-sudo /opt/netops/venv/bin/pip install -r /opt/netops/backend/requirements.txt
-sudo mkdir -p /etc/netops /opt/netops/data && sudo cp .env.example /etc/netops/netops.env
-# edit /etc/netops/netops.env, set NETOPS_DATA_DIR=/opt/netops/data
-sudo chown -R netops: /opt/netops/data /etc/netops
-sudo cp deploy/netops.service /etc/systemd/system/ && sudo systemctl enable --now netops
-```
-
-Put nginx or Caddy in front for HTTPS.
+Use the same bundle and installer as the air-gapped install: they work just as well on
+a connected server. Run `deploy/airgap/build-bundle.sh`, then follow
+[docs/install-airgap.md](docs/install-airgap.md) from step 5.
 
 ## Active Directory setup
 
@@ -131,6 +131,7 @@ The CSV columns are `name,address,platform,site,credential,frequency_minutes,not
 
 Test a single device from the command line: `python -m app.cli backup core-sw1`.
 Check what the firmware tool reads from a device: `python -m app.cli firmware-check core-sw1 --raw`.
+(On a server installed from the bundle, use `sudo netops-cli ...` instead of `python -m app.cli ...`.)
 
 ## Where things are stored
 

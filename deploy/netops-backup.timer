@@ -1,0 +1,10 @@
+[Unit]
+Description=NetOps Tools nightly backup
+
+[Timer]
+OnCalendar=*-*-* 02:30
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

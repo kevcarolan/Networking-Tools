@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     # Web sessions
     session_https_only: bool = False
     session_max_age_hours: int = 12
+    # Interactive API docs at /docs. Off by default: they describe every endpoint
+    # and aren't needed to run the tools.
+    api_docs: bool = False
 
     # Active Directory / LDAP
     ldap_url: str = ""  # e.g. ldaps://dc1.corp.local

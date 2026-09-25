@@ -4,8 +4,8 @@ The single place to see where NetOps Tools is and what's next. Update it at the 
 every working session. The details of each item are in [design.md](design.md) and
 [firmware.md](firmware.md).
 
-**Now:** Firmware phase 1 is built and waiting to be merged.
-**Next:** Merge it, check the version parsers against real devices, then start firmware phase 2 (staging and pre-checks).
+**Now:** Building the production server on the air-gapped network ([install-airgap.md](install-airgap.md), then [security-hardening.md](security-hardening.md)).
+**Next:** Check the firmware parsers on real devices (`sudo netops-cli firmware-check <device> --raw`), then start firmware phase 2 (staging and pre-checks).
 
 ## Roadmap
 
@@ -13,7 +13,13 @@ every working session. The details of each item are in [design.md](design.md) an
 - [x] Shared core: AD login with admin/viewer roles, device inventory, encrypted credential profiles, audit log
 - [x] Docker + Caddy and systemd deployment
 - [x] Shared SSH module (`core/ssh.py`) used by every tool
-- [ ] Deploy to the production VM (about 100 GB of disk once firmware images are stored)
+- [x] Air-gapped install kit: offline bundle build (pip-audit, pinned wheels, local apt repo, checksums), installer with backup and automatic rollback, hardened systemd service, nginx, nightly backups
+- [x] Security hardening guide and templates (nftables in/out, SSH, sysctl, auditd, AIDE, logging, device access)
+- [ ] Build the production VM and install from the bundle (30 GB system disk + 100 GB data disk)
+- [ ] Complete the hardening checklist in security-hardening.md and sign it off
+- [ ] Forward logs to the SIEM and set up the alerts in security-hardening.md §9
+- [ ] First restore test from a nightly backup
+- [ ] GitHub Actions: run the tests (and a bundle build) on every pull request
 - [x] Renamed the repository to `Networking-Tools`
 - [ ] Add database migrations (Alembic) before the first change to an existing table
 
@@ -59,12 +65,17 @@ every working session. The details of each item are in [design.md](design.md) an
 | 2026-09 | FTD upgrades through the FDM REST API | FTD is managed by FDM, not FMC |
 | 2026-09 | IOS-XE upgrades use install mode commands | The switches run in install mode |
 | 2026-09 | Upgrade worker will be a separate process | A GUI restart must never interrupt a reload |
+| 2026-09-25 | Production runs on an air-gapped network: systemd + nginx from an offline bundle, not Docker | No image registry to pull from; fewer packages and no Docker daemon to secure; nginx is patched with the normal Ubuntu updates |
+| 2026-09-25 | Outbound traffic from the server is blocked by default | The server holds credentials for every device, so a compromise must not spread |
+| 2026-09-25 | The credential key is kept out of backups and stored offline | A stolen backup can't be used to decrypt device passwords |
 
 ## Open questions
 
 - Is the failover pair ASA or FTD (FDM HA)? The plan currently assumes ASA.
 - Are there any switch stacks (Cat9k StackWise, AW+ VCStack) or NX-OS vPC pairs? These affect the upgrade order.
-- Where will the production VM run, and has its disk been sized for firmware images?
+- Which hypervisor will host the VM, and can it encrypt the VM (vTPM)? Otherwise LUKS with a console passphrase.
+- Is there an internal Ubuntu mirror on the air-gapped side, or do we patch with apt-offline?
+- Is there a SIEM or log server to forward logs to (address, port, CA)?
 
 ## Session log
 
@@ -72,3 +83,4 @@ every working session. The details of each item are in [design.md](design.md) an
 |---|---|---|
 | 2026-09 | Backup chat | Designed the platform and built the Config Backup MVP (merged to `main`) |
 | 2026-09-24 | Firmware chat | Planned the firmware tool; built phase 1 on branch `claude/device-firmware-upgrade-app-yey88v`; added `CLAUDE.md` and this file; repository renamed to `Networking-Tools` |
+| 2026-09-25 | NETWORK-TOOLS chat | Air-gapped install kit (bundle build + installer, tested end to end on Ubuntu 24.04), hardened service, nginx, backups; security hardening guide; audit events to the log; API docs off by default |

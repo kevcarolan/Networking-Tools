@@ -24,6 +24,12 @@ Design docs: [docs/design.md](docs/design.md) (platform and backup tool),
 * FTD is managed locally with **FDM** (not FMC), so FTD upgrades go through the FDM REST API.
 * There is **one failover pair**, assumed to be ASA. Confirm with the user before building HA upgrades.
 * Login is Active Directory over LDAPS, with admin and viewer groups plus a break-glass local admin.
+* The production server is on an **air-gapped** network: Ubuntu 24.04, systemd and nginx, installed
+  from an offline bundle (`deploy/airgap/`, [docs/install-airgap.md](docs/install-airgap.md)).
+  Nothing can be downloaded on the server, so any new Python or Ubuntu dependency must work
+  with `build-bundle.sh` (wheels only, no compiling) and be added to it. Security is a priority:
+  see [docs/security-hardening.md](docs/security-hardening.md) before changing deployment,
+  ports or outbound connections (the host firewall blocks outbound traffic by default).
 
 ## Code layout and conventions
 

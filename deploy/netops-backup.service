@@ -1,0 +1,9 @@
+[Unit]
+Description=NetOps Tools nightly backup
+After=netops.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/netops-backup nightly
+Nice=10
+IOSchedulingClass=idle

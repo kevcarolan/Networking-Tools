@@ -1,6 +1,6 @@
-# systemd unit for running without Docker (see README "Install without Docker").
-#   sudo cp deploy/netops.service /etc/systemd/system/
-#   sudo systemctl enable --now netops
+# NetOps Tools web service (systemd). Installed by deploy/airgap/install.sh.
+# The app listens on 127.0.0.1 only; nginx in front of it serves HTTPS.
+# Check the sandboxing with:  systemd-analyze security netops
 [Unit]
 Description=NetOps Tools
 After=network-online.target
@@ -9,14 +9,42 @@ Wants=network-online.target
 [Service]
 User=netops
 Group=netops
-WorkingDirectory=/opt/netops/backend
+WorkingDirectory=/opt/netops/current/backend
 EnvironmentFile=/etc/netops/netops.env
-ExecStart=/opt/netops/venv/bin/uvicorn --factory app.main:create_app --host 127.0.0.1 --port 8000 --proxy-headers
+Environment=NETOPS_DATA_DIR=/var/lib/netops NETOPS_CREDENTIAL_KEY_FILE=/etc/netops/credential.key
+ExecStart=/opt/netops/current/venv/bin/python -m uvicorn --factory app.main:create_app \
+    --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips 127.0.0.1 \
+    --no-server-header
 Restart=on-failure
-NoNewPrivileges=true
+RestartSec=5
+UMask=0027
+
+# Sandboxing: the service can write only to its data folder, sees no home
+# folders or devices, keeps no privileges and can only use normal network sockets.
+NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=/opt/netops/data /etc/netops
-PrivateTmp=true
+ReadWritePaths=/var/lib/netops
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RemoveIPC=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
 
 [Install]
 WantedBy=multi-user.target

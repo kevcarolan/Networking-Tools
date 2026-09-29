@@ -17,6 +17,8 @@
 #   SKIP_DEBS=1        don't download Ubuntu packages (you have an internal apt mirror)
 #   ALLOW_VULNS=1      build even if pip-audit reports known vulnerabilities
 #   TARGET_ARCH=x86_64 target CPU (x86_64 or aarch64)
+#   MAKE_ISO=1         also write dist/<bundle>.iso: a CD image holding the bundle, to
+#                      upload to a vSphere datastore and attach to the VM's CD drive
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -40,7 +42,8 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 if [[ $EUID -eq 0 ]]; then
   say "Installing build tools"
   apt-get update -qq
-  apt-get install -y -qq --no-install-recommends python3 python3-venv git apt-utils ca-certificates >/dev/null
+  apt-get install -y -qq --no-install-recommends python3 python3-venv git apt-utils ca-certificates \
+    ${MAKE_ISO:+xorriso} >/dev/null
 elif [[ -z "${SKIP_DEBS:-}" ]]; then
   die "run with sudo (needed to download the Ubuntu packages)"
 fi
@@ -104,6 +107,24 @@ else
   echo "Skipping Ubuntu packages (SKIP_DEBS set)"
 fi
 
+say "Manifest (for the change ticket)"
+{
+  echo "Everything in this bundle. Nothing else is installed or downloaded on the server."
+  echo
+  echo "== Ubuntu 24.04 packages (installed only if missing; never downgraded) =="
+  echo "Requested: $(tr '\n' ' ' < "$OUT/debs/PACKAGES.txt" 2>/dev/null || echo 'none (SKIP_DEBS)')"
+  for deb in "$OUT"/debs/*.deb; do
+    [[ -e "$deb" ]] && dpkg-deb --show --showformat='${Package}\t${Version}\t${Architecture}\n' "$deb"
+  done | sort | awk -F'\t' '{printf "  %-34s %-40s %s\n", $1, $2, $3}'
+  echo
+  echo "== Python packages (installed into the app's own environment, not system-wide) =="
+  awk -F'==' '{printf "  %-34s %s\n", $1, $2}' "$OUT/requirements.lock"
+  echo
+  echo "== Vulnerability check (pip-audit) =="
+  cat "$OUT/pip-audit.txt"
+} > "$OUT/MANIFEST.txt"
+echo "$(grep -c . "$OUT/MANIFEST.txt") lines written to MANIFEST.txt"
+
 say "Checksums and bundle"
 {
   echo "NetOps Tools offline bundle"
@@ -115,10 +136,18 @@ say "Checksums and bundle"
 (cd "$OUT" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
 tar -C "$WORK" -czf "dist/$NAME.tar.gz" "$NAME"
 (cd dist && sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
+cp "$OUT/MANIFEST.txt" "dist/$NAME.MANIFEST.txt"
+if [[ -n "${MAKE_ISO:-}" ]]; then
+  xorriso -as mkisofs -quiet -r -J -V NETOPS_BUNDLE -o "dist/$NAME.iso" \
+    "dist/$NAME.tar.gz" "dist/$NAME.tar.gz.sha256" "dist/$NAME.MANIFEST.txt"
+  (cd dist && sha256sum "$NAME.iso" > "$NAME.iso.sha256")
+fi
 
 say "Done"
 echo "Bundle:  dist/$NAME.tar.gz ($(du -h "dist/$NAME.tar.gz" | cut -f1))"
 echo "SHA-256: $(cut -d' ' -f1 "dist/$NAME.tar.gz.sha256")"
+echo "List:    dist/$NAME.MANIFEST.txt (every package and version, for the change ticket)"
+[[ -n "${MAKE_ISO:-}" ]] && echo "CD image: dist/$NAME.iso (SHA-256 $(cut -d' ' -f1 "dist/$NAME.iso.sha256"))"
 echo
 echo "Record the SHA-256 in your change ticket (or send it by a separate channel);"
 echo "the install checks it on the server before anything is installed."

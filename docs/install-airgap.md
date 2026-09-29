@@ -74,42 +74,91 @@ device credentials. This guide says at which point.
 
 ## 3. Build the bundle (internet side)
 
-On the build machine, get the repository at the version you want to deploy and run:
+You don't download packages one at a time. The build script downloads everything the
+server needs, including every dependency, and packs it into one file.
+
+### On a Windows PC (WSL)
+
+Use an internet-connected PC that you're allowed to use for this.
+
+1. **Install Ubuntu 24.04 under WSL.** Run once, in PowerShell as administrator, then reboot:
+   ```powershell
+   wsl --install -d Ubuntu-24.04
+   ```
+   Open **Ubuntu 24.04** from the Start menu and create a user name and password when
+   asked. They're local to WSL.
+2. **Get the code and build.** In the Ubuntu window:
+   ```bash
+   sudo apt update && sudo apt install -y git
+   git clone https://github.com/kevcarolan/Networking-Tools.git
+   cd Networking-Tools
+   sudo MAKE_ISO=1 deploy/airgap/build-bundle.sh
+   ```
+3. **Find the output.** In Windows Explorer, open
+   `\\wsl$\Ubuntu-24.04\home\<your WSL user>\Networking-Tools\dist\`.
+
+### On an Ubuntu 24.04 VM, or with Docker
 
 ```bash
-git clone https://github.com/kevcarolan/Networking-Tools.git
-cd Networking-Tools
-sudo deploy/airgap/build-bundle.sh
+git clone https://github.com/kevcarolan/Networking-Tools.git && cd Networking-Tools
+sudo MAKE_ISO=1 deploy/airgap/build-bundle.sh
+# or, on any machine with Docker:
+docker run --rm -e MAKE_ISO=1 -v "$PWD":/src -w /src ubuntu:24.04 deploy/airgap/build-bundle.sh
 ```
 
-Or, from any machine with Docker:
+### What you get
 
-```bash
-docker run --rm -v "$PWD":/src -w /src ubuntu:24.04 deploy/airgap/build-bundle.sh
-```
+The build takes a couple of minutes. It writes these files to `dist/`:
 
-This takes about a minute and produces `dist/netops-bundle-<date>-<commit>.tar.gz`
-(about 75 MB) and a `.sha256` file. It:
+| File | What it is |
+|---|---|
+| `netops-bundle-<date>-<commit>.tar.gz` | The bundle (about 90 MB): app, Python packages, Ubuntu packages, checksums |
+| `….tar.gz.sha256` | Its SHA-256 |
+| `….MANIFEST.txt` | **The list of every package and version in the bundle, with the vulnerability report.** Attach it to the change ticket |
+| `….iso` and `….iso.sha256` | With `MAKE_ISO=1`: a CD image holding the three files above, for vSphere (§4) |
 
-* runs **pip-audit** and stops if any Python package has a known vulnerability. The
-  report is saved in the bundle as `pip-audit.txt`;
-* downloads the Ubuntu packages and their full dependency tree, so the result doesn't
-  depend on what is installed on the build machine. If you have an internal Ubuntu
-  mirror on the air-gapped side, set `SKIP_DEBS=1`;
-* prints the bundle's **SHA-256**. Record it in the change ticket (or send it by a
-  different channel from the media). This is how you'll know on the server that the
-  file wasn't changed in transit.
+The build:
+
+* runs **pip-audit** and stops if any Python package has a known vulnerability;
+* downloads the Ubuntu packages and their full dependency tree (about 170 packages), so
+  the result doesn't depend on what is installed on the build machine. With an internal
+  Ubuntu mirror you can set `SKIP_DEBS=1`;
+* prints the **SHA-256** of the bundle. Record it in the change ticket, or send it by a
+  different channel from the files. On the server it proves the file wasn't changed in transit.
 
 ---
 
 ## 4. Transfer and verify
 
-1. Copy **only** the `.tar.gz` and `.sha256` files to the approved transfer media.
-2. Scan them at your media-scanning station, as your policy requires.
-3. On the server:
+1. Copy the files from `dist/` to the approved transfer media, and scan them at your
+   media-scanning station as your policy requires.
+2. Get them onto the server in one of these ways.
+
+   **A. As a CD image through vSphere (easiest for a VM):**
+   1. In the vSphere Client, go to **Storage** → the VM's datastore → **Files** →
+      **Upload Files**, and upload the `.iso`.
+   2. In **Edit Settings** for the VM, set **CD/DVD drive 1** to *Datastore ISO File*,
+      choose the ISO, and tick **Connected**. If you removed the CD drive after
+      installing Ubuntu, add one back for now.
+   3. On the server:
+      ```bash
+      sudo mount -o ro /dev/sr0 /mnt
+      sudo install -d -m 0700 /root/netops-install
+      sudo cp /mnt/netops-bundle-* /root/netops-install/
+      sudo umount /mnt
+      ```
+   4. Disconnect the ISO in the VM settings, and delete it from the datastore when
+      you've finished.
+
+   **B. From an admin machine on the air-gapped network** that the files have already
+   reached:
    ```bash
-   sudo install -d -m 0700 /root/netops-install
-   sudo cp /media/<usb>/netops-bundle-*.tar.gz* /root/netops-install/
+   scp netops-bundle-*.tar.gz* <you>@<server>:/tmp/
+   # then on the server:
+   sudo install -d -m 0700 /root/netops-install && sudo mv /tmp/netops-bundle-* /root/netops-install/
+   ```
+3. **Verify, on the server:**
+   ```bash
    cd /root/netops-install
    sha256sum netops-bundle-*.tar.gz        # must match the value in the change ticket
    sudo sha256sum -c netops-bundle-*.tar.gz.sha256

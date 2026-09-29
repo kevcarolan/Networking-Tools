@@ -89,3 +89,4 @@ every working session. The details of each item are in [design.md](design.md) an
 | 2026-09-24 | Firmware chat | Planned the firmware tool; built phase 1 on branch `claude/device-firmware-upgrade-app-yey88v`; added `CLAUDE.md` and this file; repository renamed to `Networking-Tools` |
 | 2026-09-25 | NETWORK-TOOLS chat | Air-gapped install kit (bundle build + installer, tested end to end on Ubuntu 24.04), hardened service, nginx, backups; security hardening guide; audit events to the log; API docs off by default |
 | 2026-09-25 | NETWORK-TOOLS chat | VMware hardening, apt-offline patching, PRTG monitoring endpoint and guide |
+| 2026-09-29 | NETWORK-TOOLS chat | Ubuntu installed on the VM (OS on the 30 GB disk, 100 GB left for data); bundle now includes a package manifest and an optional ISO for vSphere; Windows/WSL build steps |

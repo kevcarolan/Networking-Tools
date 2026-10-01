@@ -277,10 +277,14 @@ ready. It signs in with the local admin and uses a self-signed certificate. **Do
 it on the production server.** There, do steps 1–3.
 
 ```bash
-# Turn AD off, and create a local admin login (asks for a password twice: 12+ characters)
+# Turn AD off, and create a local admin login. Do the login part in a root shell,
+# so only one thing asks for a password at a time. It asks twice; use 12+ characters.
 sudo sed -i 's|^NETOPS_LDAP_URL=.*|NETOPS_LDAP_URL=|' /etc/netops/netops.env
 sudo sed -i '/^NETOPS_LOCAL_ADMIN_PASSWORD_HASH=/d' /etc/netops/netops.env
-sudo netops-cli hash-password | sudo tee -a /etc/netops/netops.env
+sudo -i
+netops-cli hash-password >> /etc/netops/netops.env
+grep LOCAL_ADMIN /etc/netops/netops.env      # one line starting NETOPS_LOCAL_ADMIN_PASSWORD_HASH='scrypt$
+exit
 
 # Temporary self-signed certificate (browsers will warn about it)
 sudo openssl req -x509 -newkey rsa:2048 -nodes -days 90 -subj "/CN=$(hostname)" \

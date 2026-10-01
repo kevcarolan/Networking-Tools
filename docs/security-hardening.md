@@ -112,7 +112,7 @@ remove what isn't needed:
 sudo apt purge -y snapd cloud-init modemmanager avahi-daemon cups* 2>/dev/null
 sudo apt autoremove --purge -y
 systemctl list-units --type=service --state=running    # review: anything you don't recognise?
-ss -tulpn                                              # only sshd (22), nginx (80/443), chronyd and the app on 127.0.0.1:8000
+ss -tulpn                                              # only sshd (22), nginx (80/443), chronyd and the app on 127.0.0.1:8710
 ```
 
 * Mount `/var/lib/netops` with `nodev,nosuid,noexec` (install-airgap.md §2).
@@ -205,7 +205,7 @@ addresses, restrict debugging of other processes and block unprivileged BPF. The
 What the installer set up, for your security review:
 
 * The app runs as **`netops`**, a system account with no password and no shell. It
-  listens only on **127.0.0.1:8000**, so it can only be reached through nginx.
+  listens only on **127.0.0.1:8710**, so it can only be reached through nginx.
 * **The code is owned by root** and read-only to the service. A flaw in the app can't be
   used to change the app itself.
 * **Sandbox** (`/etc/systemd/system/netops.service`):

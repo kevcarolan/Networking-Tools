@@ -26,6 +26,7 @@ PREFIX=/opt/netops
 ETC=/etc/netops
 DATA=/var/lib/netops
 BACKUPS=/var/backups/netops
+APP_PORT=8710                  # must match deploy/netops.service and the nginx site
 SKIP_OS=""
 for arg in "$@"; do
   case "$arg" in
@@ -133,9 +134,15 @@ if [[ -d /etc/audit/rules.d ]]; then
   install -m 0640 "$STAGE/deploy/hardening/audit-netops.rules" /etc/audit/rules.d/netops.rules
   command -v augenrules >/dev/null && augenrules --load >/dev/null 2>&1 || true
 fi
-if [[ -d /etc/nginx/sites-available && ! -f /etc/nginx/sites-available/netops ]]; then
-  install -m 0644 "$STAGE/deploy/nginx-netops.conf" /etc/nginx/sites-available/netops
-  echo "Created /etc/nginx/sites-available/netops - set server_name and the certificate, then enable it."
+NGINX_SITE=/etc/nginx/sites-available/netops
+if [[ -d /etc/nginx/sites-available && ! -f "$NGINX_SITE" ]]; then
+  install -m 0644 "$STAGE/deploy/nginx-netops.conf" "$NGINX_SITE"
+  echo "Created $NGINX_SITE - set server_name and the certificate, then enable it."
+elif [[ -f "$NGINX_SITE" ]] && grep -q 'proxy_pass http://127.0.0.1:8000;' "$NGINX_SITE"; then
+  # Releases before October 2026 used port 8000, which clashes with other tools.
+  sed -i "s|proxy_pass http://127.0.0.1:8000;|proxy_pass http://127.0.0.1:$APP_PORT;|" "$NGINX_SITE"
+  NGINX_PORT_CHANGED=1
+  echo "Updated $NGINX_SITE: the app now listens on port $APP_PORT instead of 8000."
 fi
 
 say "Switching to $VERSION"
@@ -153,7 +160,7 @@ ln -sfn "$REL" "$PREFIX/current.new" && mv -T "$PREFIX/current.new" "$PREFIX/cur
 health() {
   for _ in $(seq 1 30); do
     "$PREFIX/current/venv/bin/python" -c \
-      "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)" \
+      "import urllib.request; urllib.request.urlopen('http://127.0.0.1:$APP_PORT/api/health', timeout=2)" \
       2>/dev/null && return 0
     sleep 1
   done
@@ -164,6 +171,9 @@ if have_systemd; then
   systemctl daemon-reload
   systemctl enable --quiet netops-backup.timer
   systemctl start netops-backup.timer
+  if [[ -n "${NGINX_PORT_CHANGED:-}" ]] && nginx -t 2>/dev/null; then
+    systemctl reload nginx || true
+  fi
   if [[ -n "$SERVICE_WAS_RUNNING" ]]; then
     systemctl start netops
     if health; then

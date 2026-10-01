@@ -70,6 +70,7 @@ every working session. The details of each item are in [design.md](design.md) an
 | 2026-09-25 | Production runs on an air-gapped network: systemd + nginx from an offline bundle, not Docker | No image registry to pull from; fewer packages and no Docker daemon to secure; nginx is patched with the normal Ubuntu updates |
 | 2026-09-25 | Outbound traffic from the server is blocked by default | The server holds credentials for every device, so a compromise must not spread |
 | 2026-09-25 | The credential key is kept out of backups and stored offline | A stolen backup can't be used to decrypt device passwords |
+| 2026-10-01 | App's internal port is 127.0.0.1:8710, not 8000 | 8000 clashed with NetBox on the test VM; the installer updates old nginx sites itself |
 | 2026-10-01 | Server and build machine run Ubuntu 26.04 LTS; the kit builds for whichever release it runs on | Matches the installed server; 26.04 is supported for longer |
 | 2026-09-25 | VMware vSphere with VM Encryption (EFI, Secure Boot, vTPM); no LUKS | Disks and snapshots encrypted without a passphrase at every boot |
 | 2026-09-25 | Patch with apt-offline until an internal Ubuntu mirror is connected after sign-off | No mirror exists yet |

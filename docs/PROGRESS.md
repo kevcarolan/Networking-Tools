@@ -15,6 +15,7 @@ every working session. The details of each item are in [design.md](design.md) an
 - [x] Shared SSH module (`core/ssh.py`) used by every tool
 - [x] Air-gapped install kit: offline bundle build (pip-audit, pinned wheels, local apt repo, checksums), installer with backup and automatic rollback, hardened systemd service, nginx, nightly backups
 - [x] Security hardening guide and templates (nftables in/out, SSH, sysctl, auditd, AIDE, logging, device access)
+- [x] Test install on an Ubuntu 26.04 VM from the bundle: app running behind nginx (local admin, self-signed certificate)
 - [ ] Build the production VM and install from the bundle (30 GB system disk + 100 GB data disk)
 - [ ] Complete the hardening checklist in security-hardening.md and sign it off
 - [x] PRTG integration: health endpoint (`/api/monitoring/prtg`), syslog forwarding template, sensor guide
@@ -94,3 +95,4 @@ every working session. The details of each item are in [design.md](design.md) an
 | 2026-09-29 | NETWORK-TOOLS chat | Ubuntu installed on the VM (OS on the 30 GB disk, 100 GB left for data); bundle now includes a package manifest and an optional ISO for vSphere; Windows/WSL build steps |
 | 2026-10-01 | NETWORK-TOOLS chat | Kit made release-independent and tested on Ubuntu 26.04 (Python 3.14): build, fresh install, app behind nginx, all tests; fixed nginx duplicate `server_tokens` and the sudo-rs sudoers line; post-quantum SSH key exchange |
 | 2026-10-01 | NETWORK-TOOLS chat | First install from the bundle on the 26.04 test VM succeeded; added step 3A (quick local test) to the installer output and guide; fixed root-shell install steps |
+| 2026-10-01 | NETWORK-TOOLS chat | NetOps running on the test VM after moving its internal port to 8710 (NetBox uses 8000 there) |

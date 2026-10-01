@@ -151,11 +151,17 @@ ss -tulpn                                              # only sshd (22), nginx (
   This turns off passwords and root login, allows only the `netops-admins` group,
   disables forwarding and tunnels, and allows only modern algorithms.
 * **sudo:** admins log in with a key, but sudo still asks for their own password
-  (store it in the vault). Log every sudo session:
+  (store it in the vault). On Ubuntu 26.04, `sudo` is **sudo-rs**. It logs every sudo
+  command to the system journal by itself, and the `admin-commands` audit rule (§10)
+  records each command as well. Just shorten how long sudo remembers the password:
   ```bash
-  echo 'Defaults use_pty,log_output,logfile=/var/log/sudo.log,timestamp_timeout=5' | sudo tee /etc/sudoers.d/10-netops
-  sudo chmod 0440 /etc/sudoers.d/10-netops && sudo visudo -c
+  echo 'Defaults use_pty,timestamp_timeout=5' | sudo tee /etc/sudoers.d/10-netops
+  sudo chmod 0440 /etc/sudoers.d/10-netops
+  sudo visudo -c                    # must say "parsed OK" - if not, fix or delete the file NOW
   ```
+  **Always run `sudo visudo -c` before closing your session after any sudoers change.**
+  A broken sudoers file locks every admin out of sudo. Keep a second root session open
+  while you test. sudo-rs doesn't support the classic sudo `log_output`/`logfile` options.
 * **Idle sessions:** `echo 'TMOUT=900; readonly TMOUT; export TMOUT' | sudo tee /etc/profile.d/tmout.sh`
 
 ## 5. Host firewall (nftables): default deny, in and out

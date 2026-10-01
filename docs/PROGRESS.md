@@ -70,6 +70,7 @@ every working session. The details of each item are in [design.md](design.md) an
 | 2026-09-25 | Production runs on an air-gapped network: systemd + nginx from an offline bundle, not Docker | No image registry to pull from; fewer packages and no Docker daemon to secure; nginx is patched with the normal Ubuntu updates |
 | 2026-09-25 | Outbound traffic from the server is blocked by default | The server holds credentials for every device, so a compromise must not spread |
 | 2026-09-25 | The credential key is kept out of backups and stored offline | A stolen backup can't be used to decrypt device passwords |
+| 2026-10-01 | Server and build machine run Ubuntu 26.04 LTS; the kit builds for whichever release it runs on | Matches the installed server; 26.04 is supported for longer |
 | 2026-09-25 | VMware vSphere with VM Encryption (EFI, Secure Boot, vTPM); no LUKS | Disks and snapshots encrypted without a passphrase at every boot |
 | 2026-09-25 | Patch with apt-offline until an internal Ubuntu mirror is connected after sign-off | No mirror exists yet |
 | 2026-09-25 | Monitoring with PRTG: HTTP health endpoint, VMware, certificate and syslog sensors; no SNMP or agent on the server | Uses the existing monitoring; nothing extra listening on the server |
@@ -90,3 +91,4 @@ every working session. The details of each item are in [design.md](design.md) an
 | 2026-09-25 | NETWORK-TOOLS chat | Air-gapped install kit (bundle build + installer, tested end to end on Ubuntu 24.04), hardened service, nginx, backups; security hardening guide; audit events to the log; API docs off by default |
 | 2026-09-25 | NETWORK-TOOLS chat | VMware hardening, apt-offline patching, PRTG monitoring endpoint and guide |
 | 2026-09-29 | NETWORK-TOOLS chat | Ubuntu installed on the VM (OS on the 30 GB disk, 100 GB left for data); bundle now includes a package manifest and an optional ISO for vSphere; Windows/WSL build steps |
+| 2026-10-01 | NETWORK-TOOLS chat | Kit made release-independent and tested on Ubuntu 26.04 (Python 3.14): build, fresh install, app behind nginx, all tests; fixed nginx duplicate `server_tokens` and the sudo-rs sudoers line; post-quantum SSH key exchange |

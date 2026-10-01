@@ -78,7 +78,7 @@ The two options below are for servers that can reach the internet.
 
 ### Linux server with Docker
 
-Recommended host: a small Ubuntu 24.04 / Debian 12 VM (2 vCPU, 4 GB RAM; 20 GB of disk is plenty
+Recommended host: a small Ubuntu 26.04 LTS VM (24.04 also works) (2 vCPU, 4 GB RAM; 20 GB of disk is plenty
 for backups of a few hundred devices, but allow about 100 GB if you keep firmware images on it) that can reach the devices' management addresses on TCP/22.
 
 ```bash

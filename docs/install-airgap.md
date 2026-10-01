@@ -160,11 +160,12 @@ The build:
    # then on the server:
    sudo install -d -m 0700 /root/netops-install && sudo mv /tmp/netops-bundle-* /root/netops-install/
    ```
-3. **Verify, on the server:**
+3. **Verify, on the server.** The folder is readable only by root, so open a root shell first:
    ```bash
+   sudo -i                                 # root shell; type "exit" when finished
    cd /root/netops-install
    sha256sum netops-bundle-*.tar.gz        # must match the value in the change ticket
-   sudo sha256sum -c netops-bundle-*.tar.gz.sha256
+   sha256sum -c netops-bundle-*.tar.gz.sha256
    ```
    **If the hash doesn't match, stop.** Don't extract the file.
 
@@ -172,11 +173,16 @@ The build:
 
 ## 5. Install
 
+In the root shell from §4 (or `sudo -i` again):
+
 ```bash
 cd /root/netops-install
-sudo tar -xzf netops-bundle-*.tar.gz
-sudo bash netops-bundle-*/install.sh
+tar -xzf netops-bundle-*.tar.gz
+bash netops-bundle-*/install.sh
+exit                                    # leave the root shell
 ```
+
+If there is more than one bundle in the folder, use the full file names instead of `*`.
 
 The installer:
 

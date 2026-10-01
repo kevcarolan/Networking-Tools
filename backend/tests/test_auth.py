@@ -55,3 +55,8 @@ def test_viewer_is_read_only(app, client, device):
     assert client.post(f"/api/backup/devices/{device['id']}/run").status_code == 403
     assert client.get("/api/credentials").status_code == 403
     assert client.get(f"/api/backup/devices/{device['id']}/versions").status_code == 403
+
+
+def test_api_docs_off_by_default(client):
+    assert "swagger" not in client.get("/docs").text.lower()
+    assert client.get("/openapi.json").status_code == 404

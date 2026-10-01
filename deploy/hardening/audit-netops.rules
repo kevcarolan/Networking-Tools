@@ -1,0 +1,22 @@
+# auditd rules: record every change to the NetOps code, settings and secrets,
+# and to the accounts, SSH, sudo and firewall settings of the server.
+# Installed by install.sh as /etc/audit/rules.d/netops.rules. Search with, for example:
+#   ausearch -k netops-secrets -i
+-w /etc/netops/ -p wa -k netops-config
+-w /etc/netops/credential.key -p rwa -k netops-secrets
+-w /etc/netops/tls/ -p rwa -k netops-secrets
+-w /opt/netops/ -p wa -k netops-code
+-w /etc/systemd/system/netops.service -p wa -k netops-config
+-w /etc/nginx/ -p wa -k netops-web
+-w /etc/nftables.conf -p wa -k firewall
+-w /etc/ssh/sshd_config -p wa -k sshd
+-w /etc/ssh/sshd_config.d/ -p wa -k sshd
+-w /etc/sudoers -p wa -k sudoers
+-w /etc/sudoers.d/ -p wa -k sudoers
+-w /etc/passwd -p wa -k identity
+-w /etc/group -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/sysctl.d/ -p wa -k sysctl
+# Every command run as root by a logged-in admin (for example through sudo)
+-a always,exit -F arch=b64 -S execve -F euid=0 -F auid>=1000 -F auid!=unset -k admin-commands
+-a always,exit -F arch=b32 -S execve -F euid=0 -F auid>=1000 -F auid!=unset -k admin-commands

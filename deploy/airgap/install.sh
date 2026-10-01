@@ -202,6 +202,9 @@ Next steps (docs/install-airgap.md, section "First-time configuration"):
        ln -sf /etc/nginx/sites-available/netops /etc/nginx/sites-enabled/netops
        rm -f /etc/nginx/sites-enabled/default && nginx -t && systemctl reload nginx
   3. sudo systemctl enable --now netops
-  4. Apply the hardening steps in docs/security-hardening.md.
+  3A. TEST MACHINES ONLY, instead of 1-3: quick local test with a local admin and a
+      self-signed certificate - see docs/install-airgap.md, step 3A.
+  4. Production: apply the hardening steps in docs/security-hardening.md
+     before adding real device credentials.
 EOF
 fi

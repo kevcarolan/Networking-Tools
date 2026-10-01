@@ -13,8 +13,8 @@ Nothing is downloaded on the server, and nothing needs compiling there.
 ```
  Internet side                        Transfer                 Air-gapped side
  ┌──────────────────────────┐   ┌───────────────────┐   ┌──────────────────────────────┐
- │ Build machine            │   │ Approved media     │   │ NetOps server (Ubuntu 24.04) │
- │ (Ubuntu 24.04 VM / WSL)  │──►│ scanned per policy │──►│ verify SHA-256 ─► install.sh │
+ │ Build machine            │   │ Approved media     │   │ NetOps server (Ubuntu 26.04) │
+ │ (Ubuntu 26.04 VM / WSL)  │──►│ scanned per policy │──►│ verify SHA-256 ─► install.sh │
  │ build-bundle.sh          │   │ + SHA-256 in the   │   │ ─► configure ─► harden       │
  │ ─► netops-bundle-*.tar.gz│   │   change ticket    │   │                              │
  └──────────────────────────┘   └───────────────────┘   └──────────────────────────────┘
@@ -30,8 +30,8 @@ device credentials. This guide says at which point.
 | Item | Details |
 |---|---|
 | Server | A VMware VM: 2 vCPU, 4 GB RAM, a 30 GB system disk, and a separate **100 GB data disk** (firmware images). x86_64. vCenter with a key provider for VM Encryption (the built-in Native Key Provider is enough) |
-| Operating system | Ubuntu Server 24.04 LTS ISO (the same release as the bundle) |
-| Build machine | Any Ubuntu 24.04 with internet access and sudo: a VM, Windows WSL (`wsl --install -d Ubuntu-24.04`), or an `ubuntu:24.04` Docker container. Use a clean, patched machine that is used only for this |
+| Operating system | Ubuntu Server 26.04 LTS ISO. The bundle must be built on the **same Ubuntu release** as the server; 24.04 works too, if both sides use it |
+| Build machine | Ubuntu 26.04 (the server's release) with internet access and sudo: a VM, Windows WSL (`wsl --install -d Ubuntu-26.04`), or an `ubuntu:26.04` Docker container. Use a clean, patched machine that is used only for this |
 | DNS name | e.g. `netops.corp.local`, with a DNS record on the air-gapped network |
 | TLS certificate | Issued by your internal CA for that name, with the key. PEM format; include any intermediate CA in the certificate file |
 | AD | Two groups: `NetOps-Admins` and `NetOps-Viewers`. The CA certificate that signed the domain controllers' LDAPS certificates |
@@ -50,7 +50,7 @@ device credentials. This guide says at which point.
    * Apply the **VM Encryption Policy** to the VM and both disks.
    * Remove the floppy, USB and sound devices. Set the advanced settings from §2. Untick
      *Synchronize guest time with host*.
-2. **Install Ubuntu Server 24.04:**
+2. **Install Ubuntu Server 26.04:**
    * Choose **Ubuntu Server (minimized)**.
    * Storage: use LVM on the 30 GB disk. Leave LUKS off: vSphere VM Encryption already
      encrypts the disks, without a passphrase at every boot.
@@ -81,12 +81,14 @@ server needs, including every dependency, and packs it into one file.
 
 Use an internet-connected PC that you're allowed to use for this.
 
-1. **Install Ubuntu 24.04 under WSL.** Run once, in PowerShell as administrator, then reboot:
+1. **Use Ubuntu under WSL, on the same release as the server.** Check what you have,
+   in PowerShell: `wsl -l -v`, then inside Ubuntu: `grep PRETTY /etc/os-release`. If it
+   isn't the server's release, install that release (PowerShell as administrator, then reboot):
    ```powershell
-   wsl --install -d Ubuntu-24.04
+   wsl --install -d Ubuntu-26.04
    ```
-   Open **Ubuntu 24.04** from the Start menu and create a user name and password when
-   asked. They're local to WSL.
+   Open it from the Start menu and create a user name and password when asked.
+   They're local to WSL.
 2. **Get the code and build.** In the Ubuntu window:
    ```bash
    sudo apt update && sudo apt install -y git
@@ -95,15 +97,16 @@ Use an internet-connected PC that you're allowed to use for this.
    sudo MAKE_ISO=1 deploy/airgap/build-bundle.sh
    ```
 3. **Find the output.** In Windows Explorer, open
-   `\\wsl$\Ubuntu-24.04\home\<your WSL user>\Networking-Tools\dist\`.
+   `\\wsl$\<distro name from wsl -l>\home\<your WSL user>\Networking-Tools\dist\`.
+   You can also type `explorer.exe dist` in the Ubuntu window.
 
-### On an Ubuntu 24.04 VM, or with Docker
+### On an Ubuntu VM (same release as the server), or with Docker
 
 ```bash
 git clone https://github.com/kevcarolan/Networking-Tools.git && cd Networking-Tools
 sudo MAKE_ISO=1 deploy/airgap/build-bundle.sh
 # or, on any machine with Docker:
-docker run --rm -e MAKE_ISO=1 -v "$PWD":/src -w /src ubuntu:24.04 deploy/airgap/build-bundle.sh
+docker run --rm -e MAKE_ISO=1 -v "$PWD":/src -w /src ubuntu:26.04 deploy/airgap/build-bundle.sh
 ```
 
 ### What you get
@@ -180,7 +183,7 @@ The installer:
 1. checks every file in the bundle against its `SHA256SUMS`;
 2. installs the Ubuntu packages from the bundle. It adds only what is missing and
    never downgrades anything:
-   * `python3.12-venv`, `git`, `sqlite3`, `nginx`;
+   * `python3-venv`, `git`, `sqlite3`, `nginx`;
    * the hardening tools: `nftables`, `chrony`, `auditd`, `aide`, `apparmor-utils`,
      `rsyslog-gnutls`, `apt-offline`;
 3. creates the `netops` system account. It has no password and no login shell;
@@ -289,7 +292,7 @@ connect the server to an internal Ubuntu mirror, which makes this a normal `apt 
   ```bash
   # 1. On the server: make a request file listing what needs updating
   sudo apt-offline set /root/netops-install/updates.sig --update --upgrade
-  # 2. Carry updates.sig to the build machine (Ubuntu 24.04 with internet):
+  # 2. Carry updates.sig to the build machine (same Ubuntu release, with internet):
   sudo apt install apt-offline
   apt-offline get updates.sig --bundle updates.zip --threads 4
   # 3. Scan updates.zip, carry it back, then on the server:

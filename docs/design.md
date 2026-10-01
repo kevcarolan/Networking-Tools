@@ -11,7 +11,7 @@ Allied Telesis devices.
 
 | Topic | Decision | Why |
 |---|---|---|
-| Host | Dedicated Linux VM (Ubuntu 24.04 / Debian 12) | The network automation libraries are Linux-first; Docker/systemd make it easy to run; the box holds device credentials, so it should be isolated; it can host future tools |
+| Host | Dedicated Linux VM (Ubuntu 26.04 LTS) | The network automation libraries are Linux-first; Docker/systemd make it easy to run; the box holds device credentials, so it should be isolated; it can host future tools |
 | Backend | Python + FastAPI | Same language as the device libraries (Netmiko); auto-generated API docs at `/docs` |
 | Frontend | Browser-based HTML + plain JavaScript, no build step | Reachable from any PC, nothing to install; easy to maintain; can move to Vue/React later if the GUI grows |
 | Data | SQLite in `data/` | Zero administration, a single file to back up; SQLAlchemy lets us move to PostgreSQL later without code changes |

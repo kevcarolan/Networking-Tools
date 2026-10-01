@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Builds an offline install bundle for an air-gapped NetOps server.
 #
-# Run on an INTERNET-CONNECTED Ubuntu 24.04 machine (a VM, WSL "Ubuntu-24.04",
-# or a container: docker run --rm -it -v "$PWD":/src -w /src ubuntu:24.04 bash),
-# from the root of the repository:
+# Run on an INTERNET-CONNECTED machine running THE SAME UBUNTU RELEASE AS THE
+# SERVER (e.g. 26.04): a VM, WSL, or a container such as
+#   docker run --rm -it -v "$PWD":/src -w /src ubuntu:26.04 bash
+# from the root of the repository. The bundle is built for the release (and its
+# Python version) of the machine it is built on, and only installs on that release.
 #
 #     sudo deploy/airgap/build-bundle.sh
 #
@@ -25,10 +27,9 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 TARGET_ARCH="${TARGET_ARCH:-x86_64}"
-PYVER="3.12"                  # Python on Ubuntu 24.04
 # Ubuntu packages the server needs (their dependencies are added automatically).
 OS_PACKAGES=(
-  python3.12-venv git sqlite3 nginx
+  python3-venv git sqlite3 nginx
   nftables chrony auditd aide apparmor-utils rsyslog-gnutls apt-offline open-vm-tools
 )
 
@@ -36,8 +37,9 @@ say() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 . /etc/os-release
-[[ "${ID:-}" == "ubuntu" && "${VERSION_ID:-}" == "24.04" ]] || \
-  die "run this on Ubuntu 24.04 (the same release as the server); this is ${PRETTY_NAME:-unknown}"
+[[ "${ID:-}" == "ubuntu" ]] || die "run this on Ubuntu (the same release as the server); this is ${PRETTY_NAME:-unknown}"
+UBUNTU="$VERSION_ID"
+echo "Building for Ubuntu $UBUNTU ($PRETTY_NAME). The server must run the same release."
 
 if [[ $EUID -eq 0 ]]; then
   say "Installing build tools"
@@ -58,6 +60,9 @@ WORK="$(mktemp -d)"
 OUT="$WORK/$NAME"
 mkdir -p "$OUT"/{wheels,debs} "$REPO_ROOT/dist"
 trap 'rm -rf "$WORK"' EXIT
+
+# The bundle's Python packages are built for this release's own Python.
+PYVER="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
 
 say "Application source ($VERSION)"
 git -c safe.directory='*' archive --format=tar --prefix=app/ HEAD | tar -x -C "$OUT"
@@ -111,7 +116,7 @@ say "Manifest (for the change ticket)"
 {
   echo "Everything in this bundle. Nothing else is installed or downloaded on the server."
   echo
-  echo "== Ubuntu 24.04 packages (installed only if missing; never downgraded) =="
+  echo "== Ubuntu $UBUNTU packages (installed only if missing; never downgraded) =="
   echo "Requested: $(tr '\n' ' ' < "$OUT/debs/PACKAGES.txt" 2>/dev/null || echo 'none (SKIP_DEBS)')"
   for deb in "$OUT"/debs/*.deb; do
     [[ -e "$deb" ]] && dpkg-deb --show --showformat='${Package}\t${Version}\t${Architecture}\n' "$deb"
@@ -131,7 +136,9 @@ say "Checksums and bundle"
   echo "version:  $VERSION"
   echo "commit:   $(git -c safe.directory='*' rev-parse HEAD 2>/dev/null || echo unknown)"
   echo "built:    $(date -u +%FT%TZ) on $(hostname)"
-  echo "target:   Ubuntu 24.04, Python $PYVER, $TARGET_ARCH"
+  echo "ubuntu:   $UBUNTU"
+  echo "python:   $PYVER"
+  echo "arch:     $TARGET_ARCH"
 } > "$OUT/BUNDLE-INFO.txt"
 (cd "$OUT" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
 tar -C "$WORK" -czf "dist/$NAME.tar.gz" "$NAME"

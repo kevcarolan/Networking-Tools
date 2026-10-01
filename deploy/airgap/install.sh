@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs or upgrades NetOps Tools on an air-gapped Ubuntu 24.04 server from an
+# Installs or upgrades NetOps Tools on an air-gapped Ubuntu server from an
 # offline bundle made by build-bundle.sh. Nothing is downloaded.
 #
 #     tar -xzf netops-bundle-<version>.tar.gz -C /tmp
@@ -41,9 +41,14 @@ have_systemd() { [[ -d /run/systemd/system ]]; }
 
 [[ $EUID -eq 0 ]] || die "run with sudo"
 . /etc/os-release
-[[ "${ID:-}" == "ubuntu" && "${VERSION_ID:-}" == "24.04" ]] || die "this bundle is for Ubuntu 24.04"
-VERSION="$(awk '/^version:/ {print $2}' "$BUNDLE/BUNDLE-INFO.txt")"
-[[ -n "$VERSION" ]] || die "BUNDLE-INFO.txt is missing or damaged"
+info() { awk -v k="$1:" '$1 == k {print $2}' "$BUNDLE/BUNDLE-INFO.txt"; }
+VERSION="$(info version)"
+BUNDLE_UBUNTU="$(info ubuntu)"
+PYVER="$(info python)"
+[[ -n "$VERSION" && -n "$BUNDLE_UBUNTU" && -n "$PYVER" ]] || die "BUNDLE-INFO.txt is missing or damaged"
+[[ "${ID:-}" == "ubuntu" && "${VERSION_ID:-}" == "$BUNDLE_UBUNTU" ]] || \
+  die "this bundle was built for Ubuntu $BUNDLE_UBUNTU but this server runs ${PRETTY_NAME:-unknown}. Build the bundle on the same release as the server."
+PYTHON="python$PYVER"
 REL="$PREFIX/releases/$VERSION"
 APP="$BUNDLE/app"
 
@@ -65,9 +70,9 @@ if [[ -z "$SKIP_OS" && -f "$BUNDLE/debs/Packages" ]]; then
   mapfile -t PKGS < "$BUNDLE/debs/PACKAGES.txt"
   DEBIAN_FRONTEND=noninteractive "${APT[@]}" install -y -q --no-install-recommends "${PKGS[@]}"
 elif [[ -z "$SKIP_OS" ]]; then
-  echo "This bundle has no Ubuntu packages; make sure python3.12-venv, git, sqlite3 and nginx are installed."
+  echo "This bundle has no Ubuntu packages; make sure python3-venv, git, sqlite3 and nginx are installed."
 fi
-for cmd in python3.12 git sqlite3; do
+for cmd in "$PYTHON" git sqlite3; do
   command -v "$cmd" >/dev/null || die "$cmd is not installed"
 done
 
@@ -89,7 +94,7 @@ fi
 STAGE="$PREFIX/releases/.staging-$VERSION"
 rm -rf "$STAGE"
 cp -a "$APP" "$STAGE"
-python3.12 -m venv "$STAGE/venv"
+"$PYTHON" -m venv "$STAGE/venv"
 # (Always run the venv as "venv/bin/python -m ...": the folder is renamed below,
 # which breaks the paths inside launcher scripts such as venv/bin/uvicorn.)
 "$STAGE/venv/bin/python" -m pip install -q --no-index --find-links "$BUNDLE/wheels" \

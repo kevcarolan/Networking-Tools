@@ -121,6 +121,7 @@ td.result { max-width: 340px; }
 tr.disabled td { opacity: .55; }
 
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-top: 4px; }
+
 .dot.success { background: var(--ok); }
 .dot.failed { background: var(--fail); }
 .dot.running { background: var(--warn); animation: pulse 1s infinite alternate; }
@@ -156,6 +157,12 @@ td code, td .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 
 td small.sub { display: block; color: var(--muted); font-size: 12px; }
 .lowflash { color: var(--fail); font-weight: 600; }
 progress { width: 100%; }
+#ct-source { margin: -6px 0 12px; }
+#ct-preview h3, #detail-circuits h3 { font-size: 14px; margin: 16px 0 6px; }
+#ct-preview .tiles { margin-top: 4px; }
+#ct-preview .tile { cursor: default; }
+ul.plain { margin: 0; padding-left: 18px; }
+
 
 /* Dialogs */
 dialog {

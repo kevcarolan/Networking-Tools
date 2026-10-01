@@ -53,6 +53,25 @@ every working session. The details of each item are in [design.md](design.md) an
 - [ ] **Phase 3:** lab rehearsal of every upgrade path before production use
 - [ ] **Phase 4:** alerts, scheduled jobs, Cisco PSIRT advisories, end-of-life dates
 
+### Circuits
+- [x] **PR 1:** master circuit list tool: Excel upload with preview (new/changed/removed, warnings,
+      unlinked switches), versioned imports, switch/port linking, search, CSV export, device Circuits tab
+- [ ] Upload the real circuit list on the test VM and review the unlinked switches
+- [ ] NetBox sync, once NetBox is in the closed environment
+
+### Upgrade programme (agreed plan, 2026-10-01)
+Manual firmware repository by vendor. One device per job, started by an engineer in the
+change window, with no approval step. The MD5 is checked in the repository and on the
+device. A blocking pre-check can be fixed and re-checked, or overridden with a reason.
+After a failed post-check the engineer can fix it and re-check, override it with a note,
+or roll back. A full report is kept as the device's upgrade history, including the
+affected circuits.
+- [x] PR 1: circuit list (above)
+- [ ] PR 2: vendor repository, upgrade jobs, pre-checks, reports and history (Start is a dry run)
+- [ ] PR 3: upgrade worker process, staging and on-device MD5 check (no reload)
+- [ ] PR 4: IOS-XE install-mode upgrade, post-checks, re-check/override, rollback
+- [ ] PR 5+: NX-OS, IOS classic, AW+, ASA pair, FTD (FDM API)
+
 ### Later tools (ideas)
 - [ ] "Where is this MAC/IP?" lookup
 - [ ] Reachability and interface status monitor

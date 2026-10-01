@@ -28,6 +28,7 @@
       <nav id="nav">
         <button data-view="backups" class="active">Config backups</button>
         <button data-view="firmware">Firmware</button>
+        <button data-view="circuits">Circuits</button>
         <button data-view="credentials" data-admin>Credentials</button>
         <button data-view="audit" data-admin>Audit log</button>
       </nav>
@@ -134,6 +135,38 @@
         </div>
       </section>
 
+      <!-- Circuits -->
+      <section id="view-circuits" class="view" hidden>
+        <div id="ct-summary" class="tiles"></div>
+        <p id="ct-source" class="muted"></p>
+        <div class="toolbar">
+          <input id="ct-search" type="search" placeholder="Search device, IP, MAC, port, drawing…">
+          <select id="ct-filter-service"><option value="">All services</option></select>
+          <select id="ct-filter-switch"><option value="">All switches</option></select>
+          <select id="ct-filter-vlan"><option value="">All VLANs</option></select>
+          <select id="ct-filter-match">
+            <option value="">All rows</option>
+            <option value="matched">Linked to a NetOps device</option>
+            <option value="unlinked">Not linked</option>
+            <option value="warnings">With warnings</option>
+          </select>
+          <span class="spacer"></span>
+          <a class="button" href="/api/circuits/export.csv" download>Export CSV</a>
+          <button id="ct-history">Import history</button>
+          <button id="ct-upload" class="primary" data-admin>Upload spreadsheet</button>
+        </div>
+        <div class="table-wrap">
+          <table id="ct-table">
+            <thead><tr>
+              <th></th><th>Service</th><th>Device</th><th>Type / make</th><th>MAC</th><th>Location</th>
+              <th>IP</th><th>VLAN</th><th>Switch / port</th><th>Drawing</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+          <p id="ct-empty" class="empty" hidden></p>
+        </div>
+      </section>
+
       <!-- Credentials -->
       <section id="view-credentials" class="view" hidden>
         <div class="toolbar">
@@ -222,9 +255,11 @@
     <div class="tabs" id="detail-tabs">
       <button data-tab="runs" class="active">Backup history</button>
       <button data-tab="versions">Config versions</button>
+      <button data-tab="circuits">Circuits</button>
     </div>
     <div id="detail-runs" class="detail-pane"></div>
     <div id="detail-versions" class="detail-pane" hidden></div>
+    <div id="detail-circuits" class="detail-pane" hidden></div>
     <pre id="detail-text" class="config" hidden></pre>
   </dialog>
 
@@ -266,6 +301,31 @@
         <button value="save" class="primary">Upload</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- Circuit list upload + preview -->
+  <dialog id="ct-upload-dialog" class="wide">
+    <div class="detail-head">
+      <h2>Upload circuit list</h2>
+      <button id="ct-upload-close" class="ghost">Close</button>
+    </div>
+    <form id="ct-upload-form" class="form">
+      <p class="muted">Choose the master circuit list workbook (.xlsx). It is checked and shown here
+        first; the live list only changes when you click <b>Make this the live list</b>.</p>
+      <label>Workbook <input name="file" type="file" accept=".xlsx,.xlsm" required></label>
+      <p class="error" hidden></p>
+      <div class="dialog-actions"><button class="primary" value="check">Check file</button></div>
+    </form>
+    <div id="ct-preview" hidden></div>
+  </dialog>
+
+  <!-- Circuit import history -->
+  <dialog id="ct-history-dialog" class="wide">
+    <div class="detail-head">
+      <h2>Circuit list imports</h2>
+      <button id="ct-history-close" class="ghost">Close</button>
+    </div>
+    <div id="ct-history-body" class="detail-pane"></div>
   </dialog>
 
   <div id="toast" class="toast" hidden></div>

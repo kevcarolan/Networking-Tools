@@ -119,7 +119,9 @@ say "Manifest (for the change ticket)"
   echo "== Ubuntu $UBUNTU packages (installed only if missing; never downgraded) =="
   echo "Requested: $(tr '\n' ' ' < "$OUT/debs/PACKAGES.txt" 2>/dev/null || echo 'none (SKIP_DEBS)')"
   for deb in "$OUT"/debs/*.deb; do
-    [[ -e "$deb" ]] && dpkg-deb --show --showformat='${Package}\t${Version}\t${Architecture}\n' "$deb"
+    if [[ -e "$deb" ]]; then
+      dpkg-deb --show --showformat='${Package}\t${Version}\t${Architecture}\n' "$deb"
+    fi
   done | sort | awk -F'\t' '{printf "  %-34s %-40s %s\n", $1, $2, $3}'
   echo
   echo "== Python packages (installed into the app's own environment, not system-wide) =="

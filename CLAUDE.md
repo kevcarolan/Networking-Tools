@@ -12,7 +12,8 @@ and one database.
 | Tool | Folder | Status |
 |---|---|---|
 | Config Backup | `backend/app/tools/config_backup/` | MVP done |
-| Firmware (version report, image library, later upgrades) | `backend/app/tools/firmware_upgrade/` | Phase 1 done, phase 2 next |
+| Firmware (version report, image library, later upgrades) | `backend/app/tools/firmware_upgrade/` | Phase 1 done; upgrade jobs planned |
+| Circuits (master circuit list from Excel) | `backend/app/tools/circuits/` | Done ([docs/circuits.md](docs/circuits.md)) |
 
 Design docs: [docs/design.md](docs/design.md) (platform and backup tool),
 [docs/firmware.md](docs/firmware.md) (firmware tool and upgrade plan).

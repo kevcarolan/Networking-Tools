@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     firmware_workers: int = 5
     firmware_max_upload_mb: int = 4096
 
+    # Circuit list tool
+    circuits_max_upload_mb: int = 25
+
 
     @property
     def database_url(self) -> str:

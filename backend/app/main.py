@@ -18,6 +18,7 @@ from app.tools.config_backup import api as backup_api
 from app.tools.config_backup.collector import fetch_config
 from app.tools.config_backup.service import BackupService
 from app.tools.config_backup.storage import GitConfigStore
+from app.tools.circuits import api as circuits_api
 from app.tools.firmware_upgrade import api as firmware_api
 from app.tools.firmware_upgrade.service import FirmwareService
 
@@ -80,6 +81,7 @@ def create_app(settings: Settings | None = None, fetcher=fetch_config,
     app.include_router(inventory.router)
     app.include_router(backup_api.router)
     app.include_router(firmware_api.router)
+    app.include_router(circuits_api.router)
     app.include_router(monitoring.router)
 
     @app.get("/api/health", include_in_schema=False)

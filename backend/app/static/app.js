@@ -139,7 +139,8 @@ function switchView(view) {
   state.view = view;
   $$("#nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   $$(".view").forEach((s) => (s.hidden = s.id !== `view-${view}`));
-  ({ backups: loadBackups, firmware: loadFirmware, credentials: loadCredentials, audit: loadAudit })[view]();
+  ({ backups: loadBackups, firmware: loadFirmware, circuits: loadCircuits, credentials: loadCredentials,
+    audit: loadAudit })[view]();
 }
 $$("#nav button").forEach((b) => b.addEventListener("click", () => switchView(b.dataset.view)));
 
@@ -339,8 +340,9 @@ function selectDetailTab(tab) {
   $$("#detail-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   $("#detail-runs").hidden = tab !== "runs";
   $("#detail-versions").hidden = tab !== "versions";
+  $("#detail-circuits").hidden = tab !== "circuits";
   $("#detail-text").hidden = true;
-  (tab === "runs" ? loadRuns : loadVersions)();
+  ({ runs: loadRuns, versions: loadVersions, circuits: loadDeviceCircuits })[tab]();
 }
 $$("#detail-tabs button").forEach((b) => b.addEventListener("click", () => selectDetailTab(b.dataset.tab)));
 $("#detail-close").addEventListener("click", () => $("#detail-dialog").close());
@@ -748,6 +750,226 @@ async function deleteImage(img) {
     loadFwImages();
   } catch (e) {
     toast(e.message);
+  }
+}
+
+// ---------- circuits ----------
+
+const ct = { rows: [], imp: null, pending: null };
+
+const CT_MATCH = { matched: "Linked", unmatched: "Switch not in NetOps", ambiguous: "Several devices match", none: "No switch" };
+
+async function loadCircuits() {
+  try {
+    const data = await api("/api/circuits");
+    ct.rows = data.circuits;
+    ct.imp = data.import;
+  } catch (e) {
+    return toast(e.message);
+  }
+  const rows = ct.rows;
+  const linked = rows.filter((r) => r.match === "matched").length;
+  const tiles = [
+    ["", "Circuits", rows.length, ""],
+    ["success", "Linked to a switch", linked, "matched"],
+    ["failed", "Not linked", rows.length - linked, "unlinked"],
+    ["never", "With warnings", rows.filter((r) => r.warnings).length, "warnings"],
+    ["", "Switches", new Set(rows.map((r) => r.switch).filter(Boolean)).size, ""],
+  ];
+  $("#ct-summary").replaceChildren(...tiles.map(([cls, label, n, filter]) =>
+    h("button", { class: `tile ${cls}`, onclick: () => { $("#ct-filter-match").value = filter; renderCircuits(); } },
+      h("span", { class: "num" }, n), h("span", { class: "lbl" }, label))));
+  $("#ct-source").textContent = ct.imp
+    ? `Live list: ${ct.imp.filename} (sheet "${ct.imp.sheet}"), ${ct.imp.row_count} rows, made live ${fmtTime(ct.imp.committed_at)} by ${ct.imp.committed_by}.`
+    : "No circuit list has been uploaded yet.";
+  const uniq = (key) => [...new Set(rows.map((r) => r[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  fillSelect($("#ct-filter-service"), "All services", uniq("service").map((x) => [x, x]));
+  fillSelect($("#ct-filter-switch"), "All switches", uniq("switch").map((x) => [x, x]));
+  fillSelect($("#ct-filter-vlan"), "All VLANs", uniq("vlan").map((x) => [x, `VLAN ${x}`]));
+  renderCircuits();
+}
+
+function renderCircuits() {
+  const q = $("#ct-search").value.trim().toLowerCase();
+  const service = $("#ct-filter-service").value, sw = $("#ct-filter-switch").value;
+  const vlan = $("#ct-filter-vlan").value, match = $("#ct-filter-match").value;
+  const rows = ct.rows.filter((r) => {
+    if (service && r.service !== service) return false;
+    if (sw && r.switch !== sw) return false;
+    if (vlan && r.vlan !== vlan) return false;
+    if (match === "matched" && r.match !== "matched") return false;
+    if (match === "unlinked" && r.match === "matched") return false;
+    if (match === "warnings" && !r.warnings) return false;
+    if (q && ![r.device_name, r.eng_prefix, r.ip, r.mac, r.port, r.switch, r.drawing_number, r.drawing_ref,
+      r.room, r.device_type].some((v) => (v || "").toLowerCase().includes(q))) return false;
+    return true;
+  });
+  const shown = rows.slice(0, 2000);
+  $("#ct-table tbody").replaceChildren(...shown.map(circuitRow));
+  const empty = $("#ct-empty");
+  empty.hidden = rows.length > 0 && rows.length <= 2000;
+  empty.textContent = !ct.rows.length ? (isAdmin() ? "No circuit list yet - click Upload spreadsheet." : "No circuit list uploaded yet.")
+    : !rows.length ? "No circuits match the filter." : `Showing the first 2000 of ${rows.length} - narrow the filter to see the rest.`;
+}
+
+function circuitRow(r) {
+  const linkCls = r.match === "matched" ? "success" : r.match === "none" ? "never" : "failed";
+  return h("tr", {},
+    h("td", {}, h("span", { class: `dot ${linkCls}`, title: CT_MATCH[r.match] })),
+    h("td", {}, r.service || "—", r.ip_partition ? h("small", { class: "sub" }, r.ip_partition) : null),
+    h("td", { class: "name" }, r.device_name || "—", r.eng_prefix ? h("small", {}, r.eng_prefix) : null,
+      r.warnings ? h("span", { class: "errtext" }, `⚠ ${r.warnings}`) : null),
+    h("td", {}, r.device_type || "—", r.manufacturer ? h("small", { class: "sub" }, r.manufacturer) : null),
+    h("td", {}, h("code", {}, r.mac || "—")),
+    h("td", {}, r.room || "—", r.floor ? h("small", { class: "sub" }, r.floor) : null),
+    h("td", {}, h("code", {}, r.ip || "—"), r.gateway ? h("small", { class: "sub" }, `gw ${r.gateway} / ${r.mask}`) : null),
+    h("td", {}, r.vlan || "—", r.conn_type ? h("small", { class: "sub" }, r.conn_type) : null),
+    h("td", {}, h("code", {}, `${r.switch || "?"} ${r.port || ""}`),
+      h("small", { class: "sub" }, r.match === "matched" ? `→ ${r.switch_device_name}` : CT_MATCH[r.match])),
+    h("td", {}, r.drawing_number || "—", r.drawing_ref ? h("small", { class: "sub" }, r.drawing_ref) : null));
+}
+
+["input", "change"].forEach((evt) => {
+  ["#ct-search", "#ct-filter-service", "#ct-filter-switch", "#ct-filter-vlan", "#ct-filter-match"]
+    .forEach((sel) => $(sel).addEventListener(evt, renderCircuits));
+});
+
+// Upload + preview
+
+$("#ct-upload").addEventListener("click", () => {
+  const form = $("#ct-upload-form");
+  form.reset();
+  $(".error", form).hidden = true;
+  form.hidden = false;
+  $("#ct-preview").hidden = true;
+  $("#ct-upload-dialog").showModal();
+});
+$("#ct-upload-close").addEventListener("click", () => $("#ct-upload-dialog").close());
+
+$("#ct-upload-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const form = ev.target, err = $(".error", form), file = form.file.files[0];
+  const btn = $("button", form);
+  err.hidden = true;
+  btn.disabled = true;
+  btn.textContent = "Checking…";
+  try {
+    const res = await fetch(`/api/circuits/imports/upload?filename=${encodeURIComponent(file.name)}`, {
+      method: "PUT", credentials: "same-origin", body: file, headers: { "Content-Type": "application/octet-stream" },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) return showLogin();
+    if (!res.ok) throw new Error(data.detail || res.statusText);
+    ct.pending = data;
+    form.hidden = true;
+    renderPreview(data);
+  } catch (e) {
+    err.textContent = e.message;
+    err.hidden = false;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Check file";
+  }
+});
+
+function renderPreview(imp) {
+  const s = imp.summary, d = s.diff;
+  const list = (items, more) => items.length
+    ? h("ul", { class: "plain" }, items.map((x) => h("li", {}, x)), more > items.length ? h("li", { class: "muted" }, `… and ${more - items.length} more`) : null)
+    : h("p", { class: "muted" }, "None.");
+  const pane = $("#ct-preview");
+  pane.replaceChildren(
+    h("div", { class: "tiles" },
+      [["", "Rows read", imp.row_count], ["success", "New", d.added], ["never", "Changed", d.changed],
+        ["failed", "Removed", d.removed], ["", "Unchanged", d.unchanged], ["failed", "Rows not linked", s.rows_unmatched],
+        ["never", "Rows with warnings", imp.warning_count]]
+        .map(([cls, label, n]) => h("div", { class: `tile ${cls}` }, h("span", { class: "num" }, n), h("span", { class: "lbl" }, label)))),
+    h("p", { class: "muted" }, `${imp.filename}, sheet "${imp.sheet}", header on row ${s.header_row}. ` +
+      (s.replaces_import ? "Compared with the current live list." : "There is no live list yet; every row is new.") +
+      (s.missing_columns.length ? ` Columns not found (left empty): ${s.missing_columns.join(", ")}.` : "")),
+    h("h3", {}, "Switches not found in NetOps"),
+    h("p", { class: "muted" }, "Rows on these switches can't be linked to upgrade jobs until a NetOps device with that name (or ending in -name) exists."),
+    list([...s.unmatched_switches, ...s.ambiguous_switches.map((x) => `${x} (matches more than one device)`)],
+      s.unmatched_switches.length + s.ambiguous_switches.length),
+    h("h3", {}, "Changes"),
+    d.changed_sample.length ? h("table", {}, h("thead", {}, h("tr", {}, ["Row", "Field", "Before", "After"].map((t) => h("th", {}, t)))),
+      h("tbody", {}, d.changed_sample.flatMap((c) => c.fields.map((f, i) => h("tr", {},
+        h("td", {}, i === 0 ? c.row : ""), h("td", {}, f), h("td", {}, h("code", {}, c.before[f] || "—")),
+        h("td", {}, h("code", {}, c.after[f] || "—"))))))) : h("p", { class: "muted" }, "No changed rows."),
+    h("p", {}, h("b", {}, "New: "), d.added_sample.slice(0, 20).join(", ") || "none", d.added > 20 ? ` … (+${d.added - 20})` : ""),
+    h("p", {}, h("b", {}, "Removed: "), d.removed_sample.slice(0, 20).join(", ") || "none", d.removed > 20 ? ` … (+${d.removed - 20})` : ""),
+    h("h3", {}, "Rows with warnings"),
+    list(s.warnings_sample.map((w) => `Row ${w.row}: ${w.warnings}`), imp.warning_count),
+    h("div", { class: "dialog-actions" },
+      h("button", { class: "ghost", onclick: discardPending }, "Discard"),
+      h("button", { class: "primary", onclick: commitPending }, "Make this the live list")));
+  pane.hidden = false;
+}
+
+async function commitPending() {
+  try {
+    await api(`/api/circuits/imports/${ct.pending.id}/commit`, { method: "POST" });
+    $("#ct-upload-dialog").close();
+    toast("Circuit list updated");
+    loadCircuits();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function discardPending() {
+  try {
+    await api(`/api/circuits/imports/${ct.pending.id}`, { method: "DELETE" });
+  } catch (e) { /* already gone */ }
+  $("#ct-upload-dialog").close();
+}
+
+// History
+
+$("#ct-history").addEventListener("click", async () => {
+  const body = $("#ct-history-body");
+  body.replaceChildren(h("p", { class: "muted" }, "Loading…"));
+  $("#ct-history-dialog").showModal();
+  try {
+    const imports = await api("/api/circuits/imports");
+    if (!imports.length) return body.replaceChildren(h("p", { class: "empty" }, "No imports yet."));
+    body.replaceChildren(h("table", {},
+      h("thead", {}, h("tr", {}, ["Uploaded", "File", "Rows", "Changes", "Status"].map((t) => h("th", {}, t)))),
+      h("tbody", {}, imports.map((i) => {
+        const d = (i.summary || {}).diff || {};
+        return h("tr", {},
+          h("td", {}, fmtTime(i.uploaded_at), h("small", { class: "sub" }, i.uploaded_by)),
+          h("td", {}, i.filename, h("small", { class: "sub" }, `sheet "${i.sheet}"`)),
+          h("td", {}, i.row_count),
+          h("td", {}, `+${d.added ?? 0} ~${d.changed ?? 0} −${d.removed ?? 0}`),
+          h("td", {}, h("span", { class: `badge ${i.status === "active" ? "success" : i.status === "pending" ? "running" : "never"}` },
+            i.status), i.committed_at ? h("small", { class: "sub" }, `${fmtTime(i.committed_at)} ${i.committed_by}`) : null));
+      }))));
+  } catch (e) {
+    body.replaceChildren(h("p", { class: "error" }, e.message));
+  }
+});
+$("#ct-history-close").addEventListener("click", () => $("#ct-history-dialog").close());
+
+// Device detail: circuits on this switch
+
+async function loadDeviceCircuits() {
+  const pane = $("#detail-circuits");
+  pane.replaceChildren(h("p", { class: "muted" }, "Loading…"));
+  try {
+    const data = await api(`/api/circuits/for-device/${state.detailDevice.id}`);
+    if (!data.import) return pane.replaceChildren(h("p", { class: "empty" }, "No circuit list has been uploaded yet."));
+    if (!data.count) return pane.replaceChildren(h("p", { class: "empty" }, "No circuits in the list use this device."));
+    pane.replaceChildren(h("p", { class: "muted" }, `${data.count} circuit(s) on ${data.device}, from ${data.import.filename}.`),
+      ...data.groups.map((g) => h("div", {},
+        h("h3", {}, `${g.service} — VLAN ${g.vlan} (${g.circuits.length})`),
+        h("table", {}, h("thead", {}, h("tr", {}, ["Port", "Device", "Type", "IP", "MAC", "Location", "Drawing"].map((t) => h("th", {}, t)))),
+          h("tbody", {}, g.circuits.map((c) => h("tr", {},
+            h("td", {}, h("code", {}, c.port)), h("td", { class: "name" }, c.device_name || "—"), h("td", {}, c.device_type || "—"),
+            h("td", {}, h("code", {}, c.ip || "—")), h("td", {}, h("code", {}, c.mac || "—")),
+            h("td", {}, [c.floor, c.room].filter(Boolean).join(" / ") || "—"), h("td", {}, c.drawing_number || "—"))))))));
+  } catch (e) {
+    pane.replaceChildren(h("p", { class: "error" }, e.message));
   }
 }
 

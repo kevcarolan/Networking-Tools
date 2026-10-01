@@ -9,6 +9,9 @@ device inventory, one AD login and one database:
 * **Firmware** shows which software version every device runs compared with the
   approved version for its model, and keeps a checksummed library of firmware images.
   Staging and upgrades come in later phases.
+* **Circuits** holds the master circuit list, uploaded from the Excel template. It is
+  linked to switches and ports, so you can see which circuits a device carries when
+  planning an upgrade. See [docs/circuits.md](docs/circuits.md).
 
 See [docs/design.md](docs/design.md) for the platform design and roadmap, and
 [docs/firmware.md](docs/firmware.md) for the firmware tool's design and upgrade plan.

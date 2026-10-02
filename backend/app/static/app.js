@@ -84,6 +84,7 @@ function toast(message) {
 }
 
 const isAdmin = () => state.user && state.user.role === "admin";
+const canUpgrade = () => !!(state.user && state.user.can_upgrade);
 
 // ---------- auth ----------
 
@@ -100,6 +101,7 @@ async function showApp(user) {
   $("#app-view").hidden = false;
   $("#whoami").textContent = `${user.display_name || user.username} (${user.role})`;
   $$("[data-admin]").forEach((el) => (el.hidden = !isAdmin()));
+  $$("[data-upgrader]").forEach((el) => (el.hidden = !canUpgrade()));
   state.platforms = await api("/api/platforms");
   switchView("backups");
   clearInterval(state.refreshTimer);
@@ -341,8 +343,9 @@ function selectDetailTab(tab) {
   $("#detail-runs").hidden = tab !== "runs";
   $("#detail-versions").hidden = tab !== "versions";
   $("#detail-circuits").hidden = tab !== "circuits";
+  $("#detail-upgrades").hidden = tab !== "upgrades";
   $("#detail-text").hidden = true;
-  ({ runs: loadRuns, versions: loadVersions, circuits: loadDeviceCircuits })[tab]();
+  ({ runs: loadRuns, versions: loadVersions, circuits: loadDeviceCircuits, upgrades: loadDeviceUpgrades })[tab]();
 }
 $$("#detail-tabs button").forEach((b) => b.addEventListener("click", () => selectDetailTab(b.dataset.tab)));
 $("#detail-close").addEventListener("click", () => $("#detail-dialog").close());
@@ -451,7 +454,7 @@ function selectFwTab(tab) {
   fw.tab = tab;
   $$("#fw-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   $$(".fw-pane").forEach((p) => (p.hidden = p.id !== `fw-${tab}`));
-  ({ versions: loadFwVersions, standards: loadFwStandards, images: loadFwImages })[tab]();
+  ({ versions: loadFwVersions, standards: loadFwStandards, images: loadFwImages, jobs: loadJobs })[tab]();
 }
 $$("#fw-tabs button").forEach((b) => b.addEventListener("click", () => selectFwTab(b.dataset.tab)));
 
@@ -667,8 +670,12 @@ async function loadFwImages() {
   } catch (e) {
     return toast(e.message);
   }
-  $("#fw-image-table tbody").replaceChildren(...fw.images.map((i) => h("tr", {},
-    h("td", { class: "name" }, i.filename, i.notes ? h("small", {}, i.notes.slice(0, 80)) : null),
+  const images = [...fw.images].sort((a, b) => a.vendor.localeCompare(b.vendor) || a.platform.localeCompare(b.platform));
+  $("#fw-image-table tbody").replaceChildren(...images.map((i) => h("tr", {},
+    h("td", {}, h("b", {}, i.vendor)),
+    h("td", { class: "name" }, i.filename, i.recommended ? h("span", { class: "badge success" }, "Recommended") : null,
+      i.release_ref ? h("small", {}, i.release_ref) : null, i.notes ? h("small", {}, i.notes.slice(0, 80)) : null,
+      i.job_count ? h("small", {}, `Used by ${i.job_count} upgrade job(s)`) : null),
     h("td", {}, i.platform_label),
     h("td", {}, h("code", {}, i.version)),
     h("td", {}, h("code", {}, i.model_pattern)),
@@ -676,8 +683,9 @@ async function loadFwImages() {
     h("td", { title: `SHA-512: ${i.sha512}` }, h("code", {}, i.md5),
       h("small", { class: "sub" }, i.verified ? "✓ matched vendor checksum" : "not verified against vendor checksum")),
     h("td", {}, fmtTime(i.uploaded_at), h("small", { class: "sub" }, i.uploaded_by)),
-    h("td", { class: "actions" }, isAdmin()
-      ? h("button", { class: "small danger", onclick: () => deleteImage(i) }, "Delete") : []))));
+    h("td", { class: "actions" }, isAdmin() ? [
+      h("button", { class: "small", onclick: () => toggleRecommended(i) }, i.recommended ? "Unmark" : "Recommend"),
+      h("button", { class: "small danger", disabled: i.job_count > 0, onclick: () => deleteImage(i) }, "Delete")] : []))));
   $("#fw-images-empty").hidden = fw.images.length > 0;
 }
 
@@ -968,6 +976,300 @@ async function loadDeviceCircuits() {
             h("td", {}, h("code", {}, c.port)), h("td", { class: "name" }, c.device_name || "—"), h("td", {}, c.device_type || "—"),
             h("td", {}, h("code", {}, c.ip || "—")), h("td", {}, h("code", {}, c.mac || "—")),
             h("td", {}, [c.floor, c.room].filter(Boolean).join(" / ") || "—"), h("td", {}, c.drawing_number || "—"))))))));
+  } catch (e) {
+    pane.replaceChildren(h("p", { class: "error" }, e.message));
+  }
+}
+
+// ---------- upgrade jobs ----------
+
+const JOB_STATUS = {
+  planned: "Planned", pre_checking: "Pre-checking…", blocked: "Blocked", ready: "Ready to start",
+  running: "Running…", post_checking: "Post-checking…", completed: "Completed",
+  completed_overrides: "Completed with overrides", failed: "Failed post-checks", cancelled: "Cancelled",
+  rolling_back: "Rolling back…", rolled_back: "Rolled back", needs_attention: "Needs attention",
+};
+const JOB_OPEN = ["planned", "pre_checking", "blocked", "ready", "running", "post_checking", "failed", "rolling_back", "needs_attention"];
+const jobs = { list: [], current: null, tab: "checks", timer: null };
+
+async function toggleRecommended(img) {
+  const ref = img.recommended ? img.release_ref : (prompt(`Why is ${img.filename} recommended? (e.g. "Cisco suggested release")`, img.release_ref || "") ?? null);
+  if (ref === null) return;
+  try {
+    await api(`/api/firmware/images/${img.id}/info`, { method: "PUT", body: { recommended: !img.recommended, release_ref: ref } });
+    loadFwImages();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function loadJobs() {
+  try {
+    jobs.list = await api("/api/firmware/jobs");
+  } catch (e) {
+    return toast(e.message);
+  }
+  const count = (st) => jobs.list.filter((j) => st.includes(j.status)).length;
+  $("#job-summary").replaceChildren(...[
+    ["", "Open jobs", count(JOB_OPEN)], ["success", "Ready to start", count(["ready"])],
+    ["failed", "Blocked / failed", count(["blocked", "failed", "needs_attention"])],
+    ["success", "Completed", count(["completed", "completed_overrides"])],
+    ["never", "Rolled back / cancelled", count(["rolled_back", "cancelled"])],
+  ].map(([cls, label, n]) => h("div", { class: `tile ${cls}` }, h("span", { class: "num" }, n), h("span", { class: "lbl" }, label))));
+  renderJobs();
+}
+
+function renderJobs() {
+  const f = $("#job-filter").value;
+  const rows = jobs.list.filter((j) => !f || (f === "open" ? JOB_OPEN.includes(j.status) : !JOB_OPEN.includes(j.status)));
+  $("#job-table tbody").replaceChildren(...rows.map((j) => h("tr", {},
+    h("td", {}, `#${j.id}`),
+    h("td", { class: "name" }, j.device.name, h("small", {}, `${j.device.platform_label} · ${j.device.site || "—"}`)),
+    h("td", {}, h("code", {}, `${j.from_version || "?"} → ${j.target_version}`), h("small", { class: "sub" }, j.image.filename)),
+    h("td", {}, h("span", { class: `badge ${j.status}` }, JOB_STATUS[j.status] || j.status), j.dry_run ? h("small", { class: "sub" }, "dry run") : null),
+    h("td", {}, j.change_ref || "—"),
+    h("td", {}, j.planned_start ? fmtTime(j.planned_start) : "—"),
+    h("td", {}, fmtTime(j.created_at), h("small", { class: "sub" }, j.created_by)),
+    h("td", { class: "actions" }, h("button", { class: "small", onclick: () => openJob(j.id) }, "Open")))));
+  $("#job-empty").hidden = rows.length > 0;
+}
+$("#job-filter").addEventListener("change", renderJobs);
+
+// New job
+
+$("#job-new").addEventListener("click", async () => {
+  const form = $("#job-new-form");
+  form.reset();
+  $(".error", form).hidden = true;
+  try {
+    [fw.rows, fw.images] = await Promise.all([api("/api/firmware/devices"), api("/api/firmware/images")]);
+    state.credentials = isAdmin() ? await api("/api/credentials").catch(() => []) : [];
+  } catch (e) {
+    return toast(e.message);
+  }
+  form.device_id.replaceChildren(h("option", { value: "" }, "— choose a device —"),
+    ...fw.rows.map((r) => h("option", { value: r.device.id }, `${r.device.name} (${r.device.platform_label}, ${r.facts.version || "version unknown"})`)));
+  form.device_id.onchange = () => fillJobImages(form);
+  fillJobImages(form);
+  $("#job-new-dialog").showModal();
+});
+
+async function fillJobImages(form) {
+  const row = fw.rows.find((r) => String(r.device.id) === form.device_id.value);
+  const info = $("#job-new-device");
+  form.image_id.replaceChildren();
+  form.upgrade_credential_id.replaceChildren();
+  if (!row) return (info.textContent = "");
+  const matches = fw.images.filter((i) => i.platform === row.device.platform &&
+    (i.model_pattern === "*" || !row.facts.model || new RegExp("^" + i.model_pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$", "i").test(row.facts.model)));
+  form.image_id.replaceChildren(...(matches.length ? matches.map((i) => h("option", { value: i.id },
+    `${i.version} — ${i.filename}${i.recommended ? " (recommended)" : ""}`)) : [h("option", { value: "" }, "No image in the repository suits this device")]));
+  const [settings, circ] = await Promise.all([
+    api(`/api/firmware/devices/${row.device.id}/settings`).catch(() => ({})),
+    api(`/api/circuits/for-device/${row.device.id}`).catch(() => ({ count: 0 }))]);
+  const creds = state.credentials.length ? state.credentials : (settings.upgrade_credential ? [{ id: settings.upgrade_credential_id, name: settings.upgrade_credential, username: "" }] : []);
+  form.upgrade_credential_id.replaceChildren(h("option", { value: "" }, "— none —"),
+    ...creds.map((c) => h("option", { value: c.id }, c.username ? `${c.name} (${c.username})` : c.name)));
+  form.upgrade_credential_id.value = settings.upgrade_credential_id ?? "";
+  form.upgrade_credential_id.disabled = !isAdmin();
+  info.textContent = `Now running ${row.facts.version || "unknown"} on ${row.facts.model || "unknown model"}` +
+    ` · ${circ.count || 0} affected circuit(s) in the circuit list` +
+    (settings.upgrade_credential ? "" : " · no upgrade account set yet");
+}
+
+$("#job-new-form").addEventListener("submit", async (ev) => {
+  if (ev.submitter && ev.submitter.value === "cancel") return;
+  ev.preventDefault();
+  const form = ev.target, err = $(".error", form);
+  const toIso = (v) => (v ? new Date(v).toISOString().slice(0, 19) : null);
+  try {
+    const deviceId = Number(form.device_id.value);
+    if (isAdmin()) {
+      await api(`/api/firmware/devices/${deviceId}/settings`, { method: "PUT",
+        body: { upgrade_credential_id: form.upgrade_credential_id.value ? Number(form.upgrade_credential_id.value) : null } });
+    }
+    const job = await api("/api/firmware/jobs", { method: "POST", body: {
+      device_id: deviceId, image_id: Number(form.image_id.value), change_ref: form.change_ref.value,
+      notes: form.notes.value, planned_start: toIso(form.planned_start.value), planned_end: toIso(form.planned_end.value) } });
+    $("#job-new-dialog").close();
+    loadJobs();
+    openJob(job.id);
+  } catch (e) {
+    err.textContent = e.message;
+    err.hidden = false;
+  }
+});
+
+// Job window
+
+async function openJob(id) {
+  jobs.tab = "checks";
+  $$("#job-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === "checks"));
+  $("#job-dialog").showModal();
+  await refreshJob(id);
+}
+$("#job-close").addEventListener("click", () => {
+  clearTimeout(jobs.timer);
+  $("#job-dialog").close();
+  if (state.view === "firmware" && fw.tab === "jobs") loadJobs();
+});
+$$("#job-tabs button").forEach((b) => b.addEventListener("click", () => {
+  jobs.tab = b.dataset.tab;
+  $$("#job-tabs button").forEach((x) => x.classList.toggle("active", x === b));
+  renderJobPane();
+}));
+
+async function refreshJob(id) {
+  clearTimeout(jobs.timer);
+  try {
+    jobs.current = await api(`/api/firmware/jobs/${id}`);
+  } catch (e) {
+    return toast(e.message);
+  }
+  renderJob();
+  const j = jobs.current;
+  if ((j.busy || ["pre_checking", "running", "post_checking", "rolling_back"].includes(j.status)) && $("#job-dialog").open) {
+    jobs.timer = setTimeout(() => refreshJob(id), 2000);
+  }
+}
+
+function renderJob() {
+  const j = jobs.current;
+  $("#job-title").textContent = `Upgrade job #${j.id} — ${j.device.name}`;
+  const working = j.busy || ["pre_checking", "running", "post_checking", "rolling_back"].includes(j.status);
+  const cls = ["blocked", "failed", "needs_attention"].includes(j.status) ? "bad"
+    : ["ready", "completed"].includes(j.status) ? "good" : "";
+  $("#job-banner").replaceChildren(
+    h("p", { class: `banner ${cls}` }, h("b", {}, JOB_STATUS[j.status] || j.status), working ? " — working, this updates by itself" : "",
+      j.status === "blocked" ? " — fix the device and Re-check, or override each blocker with a reason." : "",
+      j.status === "failed" ? " — investigate, then Re-run post-checks, override with a note, or Roll back." : "",
+      j.status === "needs_attention" ? " — the service restarted during a step: check the device, then re-run the checks." : ""),
+    unresolvedList(j),
+    j.dry_run ? h("p", { class: "banner" }, "DRY RUN: checks really read the device; the upgrade steps are only recorded, nothing is changed.") : "");
+  const item = (label, value, sub) => h("div", {}, h("small", {}, label), value, sub ? h("small", {}, sub) : null);
+  $("#job-info").replaceChildren(
+    item("Upgrade", h("code", {}, `${j.from_version || "?"} → ${j.target_version}`), `${j.image.vendor} · ${j.image.filename}`),
+    item("Device", `${j.device.name} (${j.device.address})`, `${j.device.platform_label} · site ${j.device.site || "—"}`),
+    item("Upgrade account", j.upgrade_credential || "— not set —"),
+    item("Change", j.change_ref || "—", j.planned_start ? `${fmtTime(j.planned_start)} – ${fmtTime(j.planned_end)}` : "no window set"),
+    item("Created", fmtTime(j.created_at), j.created_by),
+    item("Started", j.started_at ? fmtTime(j.started_at) : "—", j.started_by || ""));
+  const can = (a) => j.allowed.includes(a) && canUpgrade();
+  const act = (label, action, cls = "", confirmText = null) => h("button", { class: cls, onclick: () => jobAction(action, confirmText) }, label);
+  $("#job-actions").replaceChildren(
+    can("precheck") ? act(j.pre_run ? "Re-check" : "Run pre-checks", "precheck", j.status === "planned" ? "primary" : "") : "",
+    can("start") ? act("Start (dry run)", "start", "primary", `Start the upgrade of ${j.device.name} to ${j.target_version}?\n\nPre-checks run again first. In this release it is a dry run: nothing is changed on the device.`) : "",
+    can("postcheck") ? act("Re-run post-checks", "postcheck", "primary") : "",
+    can("rollback") ? act("Roll back", "rollback", "danger", `Roll ${j.device.name} back to ${j.from_version}? (dry run)`) : "",
+    can("cancel") ? h("button", { class: "ghost", onclick: cancelJob }, "Cancel job") : "",
+    h("span", { class: "spacer" }),
+    h("a", { class: "button", href: `/api/firmware/jobs/${j.id}/report.html`, target: "_blank", rel: "noopener" }, "Open report"),
+    h("a", { class: "button", href: `/api/firmware/jobs/${j.id}/report.csv`, download: true }, "Checks CSV"));
+  renderJobPane();
+}
+
+// Failed blockers without an override, named at the top of the job window.
+function unresolvedList(j) {
+  const phase = ["failed", "needs_attention"].includes(j.status) && j.checks.post.length ? "post" : "pre";
+  if (!["blocked", "failed", "needs_attention"].includes(j.status)) return "";
+  const open = j.checks[phase].filter((c) => c.severity === "blocker" && ["fail", "error"].includes(c.status) && !c.overridden_by);
+  if (!open.length) return "";
+  return h("ul", { class: "banner bad unresolved" }, open.map((c) =>
+    h("li", {}, h("b", {}, c.label), ": ", c.value || "", c.detail ? ` — ${c.detail.split("\n")[0]}` : "")));
+}
+
+function checksTable(rows, phase) {
+  const j = jobs.current;
+  if (!rows.length) return h("p", { class: "muted" }, phase === "pre" ? "Pre-checks haven't run yet." : "Post-checks run after Start.");
+  const canOverride = canUpgrade() && !j.busy &&
+    ((phase === "pre" && ["blocked", "ready"].includes(j.status)) || (phase === "post" && ["failed", "completed_overrides"].includes(j.status)));
+  return h("table", {},
+    h("thead", {}, h("tr", {}, ["Check", "Result", "Value", "Detail", ""].map((t) => h("th", {}, t)))),
+    h("tbody", {}, rows.map((c) => {
+      const failed = ["fail", "error"].includes(c.status);
+      const sev = c.severity === "blocker" ? "" : c.severity === "warning" ? " (warning)" : " (info)";
+      return h("tr", {},
+        h("td", { class: "name" }, c.label, h("small", {}, c.severity)),
+        h("td", {}, h("span", { class: `badge ${failed && c.severity !== "blocker" ? "warnsev" : c.status}` },
+          (failed && c.overridden_by ? "overridden" : c.status) + (failed ? sev : ""))),
+        h("td", {}, c.value || "—"),
+        h("td", {}, c.detail ? h("pre", { class: "detail" }, c.detail) : "",
+          c.overridden_by ? h("div", { class: "override" }, `Override by ${c.overridden_by}: ${c.override_reason}`) : null),
+        h("td", { class: "actions" }, canOverride && failed && c.severity === "blocker" && !c.overridden_by
+          ? h("button", { class: "small", onclick: () => overrideCheck(c) }, "Override…") : ""));
+    })));
+}
+
+function renderJobPane() {
+  const j = jobs.current, pane = $("#job-pane");
+  if (jobs.tab === "checks") {
+    pane.replaceChildren(h("h3", {}, `Pre-checks${j.pre_run ? ` (run ${j.pre_run})` : ""}`), checksTable(j.checks.pre, "pre"),
+      h("h3", {}, `Post-checks${j.post_run ? ` (run ${j.post_run})` : ""}`), checksTable(j.checks.post, "post"));
+  } else if (jobs.tab === "circuits") {
+    const c = j.circuits.started || j.circuits.planned;
+    if (!c || !c.count) return pane.replaceChildren(h("p", { class: "empty" }, "No circuits in the circuit list use this device."));
+    pane.replaceChildren(h("p", { class: "muted" }, `${c.count} circuit(s) recorded ${j.circuits.started ? "at start" : "when the job was planned"} (${fmtTime(c.created_at)}), from ${c.source}.`),
+      ...c.groups.map((g) => h("div", {}, h("h3", {}, `${g.service} — VLAN ${g.vlan} (${g.circuits.length})`),
+        h("table", {}, h("thead", {}, h("tr", {}, ["Port", "Device", "Type", "IP", "Location", "Drawing"].map((t) => h("th", {}, t)))),
+          h("tbody", {}, g.circuits.map((x) => h("tr", {}, h("td", {}, h("code", {}, x.port)), h("td", { class: "name" }, x.device_name || "—"),
+            h("td", {}, x.device_type || "—"), h("td", {}, h("code", {}, x.ip || "—")),
+            h("td", {}, [x.floor, x.room].filter(Boolean).join(" / ") || "—"), h("td", {}, x.drawing_number || "—"))))))));
+  } else {
+    pane.replaceChildren(h("table", {}, h("thead", {}, h("tr", {}, ["Time", "Step", "Event"].map((t) => h("th", {}, t)))),
+      h("tbody", {}, [...j.events].reverse().map((e) => h("tr", { class: `evt-${e.level}` },
+        h("td", {}, fmtTime(e.time)), h("td", {}, e.step), h("td", {}, e.message))))));
+  }
+}
+
+async function jobAction(action, confirmText) {
+  if (confirmText && !confirm(confirmText)) return;
+  try {
+    await api(`/api/firmware/jobs/${jobs.current.id}/${action}`, { method: "POST" });
+    setTimeout(() => refreshJob(jobs.current.id), 400);
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function overrideCheck(c) {
+  const reason = prompt(`Override "${c.label}"\n\n${c.detail || c.value}\n\nWhy is it safe to continue? (at least 10 characters; this goes in the job record)`);
+  if (reason === null) return;
+  try {
+    jobs.current = await api(`/api/firmware/jobs/${jobs.current.id}/checks/${c.id}/override`, { method: "POST", body: { reason } });
+    renderJob();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function cancelJob() {
+  const reason = prompt("Why is this job being cancelled? (at least 10 characters)");
+  if (reason === null) return;
+  try {
+    jobs.current = await api(`/api/firmware/jobs/${jobs.current.id}/cancel`, { method: "POST", body: { reason } });
+    renderJob();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+// Device detail: upgrade history
+
+async function loadDeviceUpgrades() {
+  const pane = $("#detail-upgrades");
+  pane.replaceChildren(h("p", { class: "muted" }, "Loading…"));
+  try {
+    const list = await api(`/api/firmware/devices/${state.detailDevice.id}/jobs`);
+    if (!list.length) return pane.replaceChildren(h("p", { class: "empty" }, "No upgrade jobs for this device yet."));
+    pane.replaceChildren(h("table", {},
+      h("thead", {}, h("tr", {}, ["#", "Upgrade", "Status", "Change", "Started", ""].map((t) => h("th", {}, t)))),
+      h("tbody", {}, list.map((j) => h("tr", {},
+        h("td", {}, `#${j.id}`), h("td", {}, h("code", {}, `${j.from_version || "?"} → ${j.target_version}`)),
+        h("td", {}, h("span", { class: `badge ${j.status}` }, JOB_STATUS[j.status] || j.status)),
+        h("td", {}, j.change_ref || "—"), h("td", {}, j.started_at ? fmtTime(j.started_at) : "—"),
+        h("td", { class: "actions" },
+          h("a", { class: "button small", href: `/api/firmware/jobs/${j.id}/report.html`, target: "_blank", rel: "noopener" }, "Report"),
+          h("button", { class: "small", onclick: () => { $("#detail-dialog").close(); openJob(j.id); } }, "Open")))))));
   } catch (e) {
     pane.replaceChildren(h("p", { class: "error" }, e.message));
   }

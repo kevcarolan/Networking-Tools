@@ -12,7 +12,7 @@ and one database.
 | Tool | Folder | Status |
 |---|---|---|
 | Config Backup | `backend/app/tools/config_backup/` | MVP done |
-| Firmware (version report, image library, later upgrades) | `backend/app/tools/firmware_upgrade/` | Phase 1 done; upgrade jobs planned |
+| Firmware (version report, image library, upgrade jobs) | `backend/app/tools/firmware_upgrade/` | Upgrade jobs with checks and reports (dry run only, [docs/upgrades.md](docs/upgrades.md)) |
 | Circuits (master circuit list from Excel) | `backend/app/tools/circuits/` | Done ([docs/circuits.md](docs/circuits.md)) |
 
 Design docs: [docs/design.md](docs/design.md) (platform and backup tool),
@@ -51,6 +51,12 @@ Design docs: [docs/design.md](docs/design.md) (platform and backup tool),
   `api()` helpers in `app.js`, keep styles on the CSS variables in `style.css` (light and dark),
   and hide admin-only controls with `data-admin`.
 * Anything that changes something is admin-only and is written to the audit log with `audit()`.
+  Upgrade job actions need the **upgrader** permission instead (`require_upgrader`, `User.can_upgrade`;
+  hide those controls with `data-upgrader`).
+* Upgrade jobs: checks live in `checks.py` (parsers + `CheckResult`), the procedure in `jobs.py`
+  (`JobService`, status flow in `ALLOWED`), the API in `jobs_api.py`, the report in `report.py`.
+  Start is still a **dry run** (`dry_run=True`): don't send any command that changes a device
+  until PR 3/4, and then only from the separate worker process.
 * Device access is always injectable (`fetcher=` / `fw_collector=` in `create_app`), so tests
   never touch SSH. Parser tests use real sample output in `backend/tests/firmware_samples.py`.
 

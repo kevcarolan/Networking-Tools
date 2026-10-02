@@ -99,6 +99,11 @@ def for_device(device_id: int, db: Session = Depends(get_db), _: User = Depends(
     device = db.get(Device, device_id)
     if device is None:
         raise HTTPException(404, "Device not found")
+    return circuits_for_device(db, device)
+
+
+def circuits_for_device(db: Session, device: Device) -> dict:
+    """Also used by upgrade jobs to freeze the affected circuits."""
     imp = _active(db)
     if imp is None:
         return {"device": device.name, "import": None, "count": 0, "groups": []}

@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     ldap_admin_group: str = ""  # DN of the group allowed to make changes
     ldap_viewer_group: str = ""  # DN of the read-only group; empty = any domain user
     ldap_ca_file: str = ""  # CA bundle for validating the DC certificate
+    ldap_upgrader_group: str = ""  # DN of the group allowed to run upgrades; empty = admins
 
     # Local break-glass admin (works even if AD is down). Leave the hash empty to disable.
     local_admin_user: str = "admin"
@@ -58,6 +59,14 @@ class Settings(BaseSettings):
     firmware_check_minutes: int = 1440  # how often each device's version is re-read
     firmware_workers: int = 5
     firmware_max_upload_mb: int = 4096
+
+    # Upgrade jobs
+    upgrade_workers: int = 2
+    upgrade_cpu_warn: int = 80  # % CPU (5 min) above which a pre-check warns
+    upgrade_mem_warn: int = 85  # % memory used above which a pre-check warns
+    upgrade_flash_factor: float = 1.1  # free flash needed = image size x factor
+    upgrade_flash_factor_install: float = 2.2  # IOS-XE install mode expands the image
+    upgrade_backup_max_age_hours: int = 24
 
     # Circuit list tool
     circuits_max_upload_mb: int = 25

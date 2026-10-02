@@ -139,3 +139,139 @@ RAM:  Total: 2048000 kB Free: 1500000 kB
 """
 
 INVALID = "                ^\n% Invalid input detected at '^' marker.\n"
+
+
+# --- upgrade pre/post checks (IOS-XE) ------------------------------------------
+
+ALARMS_OK = """System Totals  Critical: 0  Major: 0  Minor: 0
+
+Source                     Time                   Severity    Description [Index]
+------                     ------                 --------    -------------------
+"""
+
+ALARMS_BAD = """System Totals  Critical: 1  Major: 0  Minor: 1
+
+Source                     Time                   Severity    Description [Index]
+------                     ------                 --------    -------------------
+Switch 1                   Oct 01 2026 09:12:44   CRITICAL    Power Supply Bay 2 Failed [3]
+Switch 2                   Oct 01 2026 09:13:10   MINOR       Temperature Inlet High [1]
+"""
+
+ENV_OK = """Switch   FAN     Speed   State   Airflow direction
+---------------------------------------------------
+  1       1     14240     OK     Front to Back
+  1       2     14240     OK     Front to Back
+FAN PS-1 is OK
+FAN PS-2 is NOT PRESENT
+SW  PID                 Serial#     Status           Sys Pwr  PoE Pwr  Watts
+--  ------------------  ----------  ---------------  -------  -------  -----
+1A  PWR-C1-715WAC       DCB2133ABCD  OK              Good     Good     715
+1B  Not Present
+Sensor List:  Environmental Monitoring
+ Sensor           Location        State               Reading       Range(min-max)
+ PS1 Vout          1               GOOD                56491 mV      na
+ SYSTEM INLET      1               GREEN               28 Celsius    -5 - 46
+"""
+
+ENV_BAD = ENV_OK.replace("  1       2     14240     OK", "  1       2         0     FAILED")
+
+CPU_OK = "CPU utilization for five seconds: 5%/0%; one minute: 6%; five minutes: 7%\n"
+CPU_HIGH = "CPU utilization for five seconds: 95%/2%; one minute: 91%; five minutes: 88%\n"
+MEM_OK = "Processor Pool Total: 1453127928 Used:  362436052 Free: 1090691876\n"
+
+INSTALL_OK = """[ Switch 1 2 ] Installed Package(s) Information:
+State (St): I - Inactive, U - Activated & Uncommitted,
+            C - Activated & Committed, D - Deactivated & Uncommitted
+--------------------------------------------------------------------------------
+Type  St   Filename/Version
+--------------------------------------------------------------------------------
+IMG   I    17.06.05.0.1234
+IMG   C    17.09.04a.0.6
+
+--------------------------------------------------------------------------------
+Auto abort timer: inactive
+--------------------------------------------------------------------------------
+"""
+
+INSTALL_PENDING = INSTALL_OK.replace("IMG   C    17.09.04a.0.6", "IMG   U    17.12.04.0.11").replace(
+    "Auto abort timer: inactive", "Auto abort timer: active , time before rollback - 05:40:12")
+
+UNSAVED_NONE = "\n!Contextual Config Diffs:\n!No changes were found\n"
+UNSAVED_SOME = """
+!Contextual Config Diffs:
+interface GigabitEthernet1/0/5
+ +description new-printer
++ntp server 10.1.1.10
+"""
+
+STACK_OK = """Switch/Stack Mac Address : 0011.2233.4455 - Local Mac Address
+Mac persistency wait time: Indefinite
+                                             H/W   Current
+Switch#   Role    Mac Address     Priority Version  State
+-------------------------------------------------------------
+*1       Active   0011.2233.4455     15     V01     Ready
+ 2       Standby  0011.2233.4466     14     V01     Ready
+"""
+
+STACK_BAD = STACK_OK.replace("V01     Ready\n \n", "").replace(
+    " 2       Standby  0011.2233.4466     14     V01     Ready",
+    " 2       Member   0011.2233.4466     14     V01     Removed")
+
+IP_BRIEF = """Interface              IP-Address      OK? Method Status                Protocol
+Vlan1                  unassigned      YES NVRAM  administratively down down
+Vlan34                 10.3.34.1       YES NVRAM  up                    up
+GigabitEthernet1/0/1   unassigned      YES unset  up                    up
+GigabitEthernet1/0/2   unassigned      YES unset  down                  down
+GigabitEthernet2/0/13  unassigned      YES unset  up                    up
+"""
+
+CDP_DETAIL = """-------------------------
+Device ID: DUB01-CORE-01.corp.local
+Entry address(es):
+  IP address: 10.3.0.1
+Platform: cisco C9500-48Y4C,  Capabilities: Router Switch IGMP
+Interface: GigabitEthernet1/0/1,  Port ID (outgoing port): TwentyFiveGigE1/0/1
+Holdtime : 155 sec
+-------------------------
+Device ID: GH-AS02
+Entry address(es):
+  IP address: 10.3.0.12
+Platform: cisco C9300-48P,  Capabilities: Switch IGMP
+Interface: GigabitEthernet1/1/1,  Port ID (outgoing port): GigabitEthernet1/1/1
+Holdtime : 140 sec
+"""
+
+LLDP_DETAIL = """------------------------------------------------
+Local Intf: Gi2/0/13
+Chassis id: 0030.4604.c02f
+Port id: 1
+System Name: A-DUB01-GH-100-3
+
+------------------------------------------------
+Local Intf: Gi1/0/1
+Chassis id: 00aa.bbcc.dd01
+System Name: DUB01-CORE-01
+
+Total entries displayed: 2
+"""
+
+ETHERCHANNEL = """Flags:  D - down        P - bundled in port-channel
+        I - stand-alone s - suspended
+Group  Port-channel  Protocol    Ports
+------+-------------+-----------+-----------------------------------------------
+1      Po1(SU)         LACP      Gi1/1/1(P)  Gi2/1/1(P)
+"""
+
+MAC_COUNT = """Mac Entries for Vlan 34:
+---------------------------
+Dynamic Address Count  : 40
+Static  Address Count  : 0
+Total Mac Addresses    : 40
+
+Total Mac Addresses for this criterion: 52
+"""
+
+ASA_CPU = "CPU utilization for 5 seconds = 1%; 1 minute: 2%; 5 minutes: 3%\n"
+ASA_MEM = "Free memory:        6144000000 bytes (75%)\nUsed memory:        2048000000 bytes (25%)\n"
+ASA_FAILOVER_BAD = ASA_FAILOVER.replace("Other host: Secondary - Standby Ready",
+                                        "Other host: Secondary - Failed")

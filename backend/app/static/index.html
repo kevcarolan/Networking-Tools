@@ -72,6 +72,7 @@
           <button data-tab="versions" class="active">Versions</button>
           <button data-tab="standards">Standards</button>
           <button data-tab="images">Image library</button>
+          <button data-tab="jobs">Upgrade jobs</button>
         </div>
 
         <div id="fw-versions" class="fw-pane">
@@ -121,16 +122,37 @@
 
         <div id="fw-images" class="fw-pane" hidden>
           <div class="toolbar">
-            <p class="muted">Firmware files kept on the server, ready for upgrades. Paste the vendor's MD5 or SHA-512 when uploading to verify the download.</p>
+            <p class="muted">The firmware repository, by vendor. Download the release you want from the vendor, then upload it here; paste the vendor's MD5 or SHA-512 to verify the download.</p>
             <span class="spacer"></span>
             <button id="fw-upload" class="primary" data-admin>+ Upload image</button>
           </div>
           <div class="table-wrap">
             <table id="fw-image-table">
-              <thead><tr><th>File</th><th>Platform</th><th>Version</th><th>Models</th><th>Size</th><th>MD5</th><th>Uploaded</th><th></th></tr></thead>
+              <thead><tr><th>Vendor</th><th>File</th><th>Platform</th><th>Version</th><th>Models</th><th>Size</th><th>MD5</th><th>Uploaded</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
             <p id="fw-images-empty" class="empty" hidden>No images uploaded yet.</p>
+          </div>
+        </div>
+
+        <div id="fw-jobs" class="fw-pane" hidden>
+          <div id="job-summary" class="tiles"></div>
+          <div class="toolbar">
+            <p class="muted">One device per job. Pre-checks must pass (or be overridden with a reason) before Start. <b>This release runs every job as a dry run: nothing is changed on the device.</b></p>
+            <span class="spacer"></span>
+            <select id="job-filter">
+              <option value="open">Open jobs</option>
+              <option value="">All jobs</option>
+              <option value="closed">Finished jobs</option>
+            </select>
+            <button id="job-new" class="primary" data-upgrader>+ New upgrade job</button>
+          </div>
+          <div class="table-wrap">
+            <table id="job-table">
+              <thead><tr><th>#</th><th>Device</th><th>Upgrade</th><th>Status</th><th>Change</th><th>Planned</th><th>Created</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+            <p id="job-empty" class="empty" hidden>No upgrade jobs.</p>
           </div>
         </div>
       </section>
@@ -256,10 +278,12 @@
       <button data-tab="runs" class="active">Backup history</button>
       <button data-tab="versions">Config versions</button>
       <button data-tab="circuits">Circuits</button>
+      <button data-tab="upgrades">Upgrade history</button>
     </div>
     <div id="detail-runs" class="detail-pane"></div>
     <div id="detail-versions" class="detail-pane" hidden></div>
     <div id="detail-circuits" class="detail-pane" hidden></div>
+    <div id="detail-upgrades" class="detail-pane" hidden></div>
     <pre id="detail-text" class="config" hidden></pre>
   </dialog>
 
@@ -326,6 +350,45 @@
       <button id="ct-history-close" class="ghost">Close</button>
     </div>
     <div id="ct-history-body" class="detail-pane"></div>
+  </dialog>
+
+  <!-- New upgrade job -->
+  <dialog id="job-new-dialog">
+    <form id="job-new-form" method="dialog" class="form">
+      <h2>New upgrade job</h2>
+      <label>Device <select name="device_id" required></select></label>
+      <p id="job-new-device" class="muted"></p>
+      <label>Firmware image <select name="image_id" required></select></label>
+      <div class="grid2">
+        <label>Change reference <input name="change_ref" maxlength="100" placeholder="CHG0012345"></label>
+        <label>Upgrade account <select name="upgrade_credential_id"></select></label>
+        <label>Window start <input name="planned_start" type="datetime-local"></label>
+        <label>Window end <input name="planned_end" type="datetime-local"></label>
+      </div>
+      <label>Notes <textarea name="notes" rows="2" maxlength="5000"></textarea></label>
+      <p class="error" hidden></p>
+      <div class="dialog-actions">
+        <button value="cancel" formnovalidate class="ghost">Cancel</button>
+        <button value="save" class="primary">Create job</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Upgrade job window -->
+  <dialog id="job-dialog" class="wide">
+    <div class="detail-head">
+      <h2 id="job-title"></h2>
+      <button id="job-close" class="ghost">Close</button>
+    </div>
+    <div id="job-banner"></div>
+    <div id="job-info" class="job-info"></div>
+    <div id="job-actions" class="dialog-actions job-actions"></div>
+    <div class="tabs" id="job-tabs">
+      <button data-tab="checks" class="active">Checks</button>
+      <button data-tab="circuits">Affected circuits</button>
+      <button data-tab="log">Log</button>
+    </div>
+    <div id="job-pane" class="detail-pane"></div>
   </dialog>
 
   <div id="toast" class="toast" hidden></div>

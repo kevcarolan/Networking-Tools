@@ -108,6 +108,7 @@ def delete_credential(cred_id: int, db: Session = Depends(get_db),
     if cred.devices:
         raise HTTPException(409, f"Credential is used by {len(cred.devices)} device(s)")
     db.delete(cred)
+    _flush_in_use(db, "Credential is the upgrade account of one or more devices")
     audit(db, user.username, "credential.delete", cred.name)
     return Response(status_code=204)
 
@@ -214,6 +215,8 @@ def delete_device(device_id: int, db: Session = Depends(get_db),
                   user: User = Depends(require_admin)):
     device = db.get(Device, device_id) or _not_found("Device")
     db.delete(device)
+    _flush_in_use(db, "Device has firmware upgrade history and can't be deleted; "
+                      "disable it instead")
     audit(db, user.username, "device.delete", device.name)
     return Response(status_code=204)
 
@@ -237,6 +240,15 @@ def _not_found(what: str):
 def _check_credential(db: Session, cred_id: int | None) -> None:
     if cred_id is not None and db.get(Credential, cred_id) is None:
         raise HTTPException(422, "Credential does not exist")
+
+
+def _flush_in_use(db: Session, message: str) -> None:
+    """Flush a delete; a foreign key that still points at the row means it's in use."""
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, message) from None
 
 
 def _flush_unique(db: Session, message: str) -> None:

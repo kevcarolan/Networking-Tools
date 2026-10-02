@@ -57,6 +57,10 @@ upload or delete images.
 
 ## Phase 2: staging and pre-checks (no reloads)
 
+> **Status (PR 2):** upgrade credential per device, pre-check job, before/after snapshot,
+> overrides, reports and history are built, with Start as a dry run. How to use them:
+> [upgrades.md](upgrades.md). Staging (below) is PR 3.
+
 * An upgrade credential per device (privileged account, separate from the backup account).
 * **Pre-check job** (a dry run): reachability, login, current version, model matches the
   image, enough free flash, no unsaved config (`show archive config differences` / startup vs

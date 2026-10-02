@@ -14,7 +14,8 @@ device inventory, one AD login and one database:
   planning an upgrade. See [docs/circuits.md](docs/circuits.md).
 
 See [docs/design.md](docs/design.md) for the platform design and roadmap, and
-[docs/firmware.md](docs/firmware.md) for the firmware tool's design and upgrade plan.
+[docs/firmware.md](docs/firmware.md) for the firmware tool's design and upgrade plan, and
+[docs/upgrades.md](docs/upgrades.md) for how to run an upgrade job.
 Progress, decisions and open questions are tracked in [docs/PROGRESS.md](docs/PROGRESS.md).
 
 | Supported platform | Key | Method |

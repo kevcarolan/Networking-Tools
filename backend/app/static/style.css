@@ -141,6 +141,7 @@ a.button {
   border: 1px solid var(--border); border-radius: 6px; background: var(--surface); padding: 7px 10px;
 }
 a.button:hover { border-color: var(--accent); }
+a.button.small { padding: 3px 8px; font-size: 12px; }
 .badge.compliant { background: var(--ok-bg); color: var(--ok); }
 .badge.behind { background: var(--fail-bg); color: var(--fail); }
 .badge.ahead { background: var(--warn-bg); color: var(--warn); }
@@ -162,6 +163,29 @@ progress { width: 100%; }
 #ct-preview .tiles { margin-top: 4px; }
 #ct-preview .tile { cursor: default; }
 ul.plain { margin: 0; padding-left: 18px; }
+
+/* Upgrade jobs */
+.badge.ready, .badge.completed { background: var(--ok-bg); color: var(--ok); }
+.badge.blocked, .badge.failed, .badge.needs_attention { background: var(--fail-bg); color: var(--fail); }
+.badge.pre_checking, .badge.running, .badge.post_checking, .badge.rolling_back,
+.badge.completed_overrides { background: var(--warn-bg); color: var(--warn); }
+.badge.planned, .badge.cancelled, .badge.rolled_back { background: var(--idle-bg); color: var(--idle); }
+.badge.pass { background: var(--ok-bg); color: var(--ok); }
+.badge.fail, .badge.error { background: var(--fail-bg); color: var(--fail); }
+.badge.skip { background: var(--idle-bg); color: var(--idle); }
+.badge.warnsev { background: var(--warn-bg); color: var(--warn); }
+.job-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 6px 18px; margin: 8px 0 12px; }
+.job-info div small { display: block; color: var(--muted); font-size: 12px; }
+.job-actions { justify-content: flex-start; flex-wrap: wrap; margin-bottom: 12px; }
+.banner { padding: 8px 12px; border-radius: 6px; background: var(--warn-bg); color: var(--warn); margin: 6px 0; }
+.banner.bad { background: var(--fail-bg); color: var(--fail); }
+.banner.good { background: var(--ok-bg); color: var(--ok); }
+ul.banner.unresolved { padding-left: 28px; }
+td pre.detail { margin: 2px 0 0; white-space: pre-wrap; font-size: 12px; color: var(--muted); }
+.override { font-size: 12px; color: var(--warn); }
+tr.evt-action td { font-weight: 600; }
+tr.evt-warn td, tr.evt-error td { color: var(--fail); }
+#job-pane { max-height: 50vh; }
 
 
 /* Dialogs */

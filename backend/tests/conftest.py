@@ -46,13 +46,25 @@ class FakeCollector:
         from tests import firmware_samples as fw
 
         self.outputs: dict[str, list[str]] = {}
+        self.by_command: dict[str, dict[str, str]] = {}  # device -> command -> output
         self.errors: dict[str, Exception] = {}
         self.default = [fw.IOS_XE_VERSION, fw.IOS_DIR]
+        self.calls: list[tuple[str, str]] = []  # (device, username)
 
     def __call__(self, target, commands):
+        self.calls.append((target.name, target.username))
         if target.name in self.errors:
             raise self.errors[target.name]
+        if target.name in self.by_command:
+            outs = self.by_command[target.name]
+            return [outs.get(c, fw_invalid()) for c in commands]
         return self.outputs.get(target.name, self.default)
+
+
+def fw_invalid():
+    from tests import firmware_samples as fw
+
+    return fw.INVALID
 
 
 @pytest.fixture

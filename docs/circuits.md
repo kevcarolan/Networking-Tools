@@ -2,7 +2,8 @@
 
 The **Circuits** page holds the master circuit list: every end device or service and the
 switch port it uses. When you plan an upgrade, it shows which circuits a device carries.
-Firmware upgrade jobs will use it from the next phase.
+Each firmware upgrade job saves the device's circuits when it is planned and again when
+it starts ([upgrades.md](upgrades.md)).
 
 ## Uploading the spreadsheet
 

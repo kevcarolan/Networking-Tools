@@ -4,8 +4,8 @@ The single place to see where NetOps Tools is and what's next. Update it at the 
 every working session. The details of each item are in [design.md](design.md) and
 [firmware.md](firmware.md).
 
-**Now:** Building the production server on the air-gapped network ([install-airgap.md](install-airgap.md), then [security-hardening.md](security-hardening.md)).
-**Next:** Check the firmware parsers on real devices (`sudo netops-cli firmware-check <device> --raw`), then start firmware phase 2 (staging and pre-checks).
+**Now:** Upgrade programme PR 2 (upgrade jobs, pre-checks, reports; Start is a dry run). Try it on the test VM against a lab switch ([upgrades.md](upgrades.md)).
+**Next:** PR 3 (upgrade worker process, image copy and on-device MD5). In parallel: check the parsers on real devices (`sudo netops-cli firmware-check <device> --raw`) and build the production server.
 
 ## Roadmap
 
@@ -39,10 +39,10 @@ every working session. The details of each item are in [design.md](design.md) an
 - [x] **Phase 1:** image library with streamed upload and MD5/SHA-512 verification
 - [x] **Phase 1:** `app.cli firmware-check <device> --raw` for testing the parsers
 - [ ] **Phase 1 sign-off:** run `firmware-check --raw` on one device per platform and model; fix any parser that is wrong
-- [ ] **Phase 2:** separate upgrade credential per device
-- [ ] **Phase 2:** pre-check job (dry run): reachability, model/image match, flash space, unsaved config, HA health
+- [x] **Phase 2:** separate upgrade credential per device (PR 2)
+- [x] **Phase 2:** pre-check job (dry run): reachability, model/image match, flash space, unsaved config, HA health (PR 2)
 - [ ] **Phase 2:** stage job: SCP push (Cisco) / HTTP pull (AW+), on-device checksum check
-- [ ] **Phase 2:** capture "before" state (interfaces, neighbours, port-channels, routing, failover)
+- [x] **Phase 2:** capture "before" state: interfaces, neighbours, port-channels, MAC count, stack (PR 2; routing still to do)
 - [ ] **Phase 3:** upgrade jobs with maintenance window, waves, failure limit, peer groups
 - [ ] **Phase 3:** automatic config backup before and after each upgrade, post-checks and diff
 - [ ] **Phase 3:** IOS-XE install mode, IOS classic and AW+ upgrades
@@ -67,7 +67,8 @@ After a failed post-check the engineer can fix it and re-check, override it with
 or roll back. A full report is kept as the device's upgrade history, including the
 affected circuits.
 - [x] PR 1: circuit list (above)
-- [ ] PR 2: vendor repository, upgrade jobs, pre-checks, reports and history (Start is a dry run)
+- [x] PR 2: vendor repository, upgrade jobs, pre-checks, reports and history (Start is a dry run) ([upgrades.md](upgrades.md))
+- [ ] PR 2 sign-off: dry run against a real lab switch; check the new parsers (alarms, environment, install summary, show switch) on real output
 - [ ] PR 3: upgrade worker process, staging and on-device MD5 check (no reload)
 - [ ] PR 4: IOS-XE install-mode upgrade, post-checks, re-check/override, rollback
 - [ ] PR 5+: NX-OS, IOS classic, AW+, ASA pair, FTD (FDM API)
@@ -94,6 +95,9 @@ affected circuits.
 | 2026-10-01 | Server and build machine run Ubuntu 26.04 LTS; the kit builds for whichever release it runs on | Matches the installed server; 26.04 is supported for longer |
 | 2026-09-25 | VMware vSphere with VM Encryption (EFI, Secure Boot, vTPM); no LUKS | Disks and snapshots encrypted without a passphrase at every boot |
 | 2026-09-25 | Patch with apt-offline until an internal Ubuntu mirror is connected after sign-off | No mirror exists yet |
+| 2026-10-02 | Upgraders are an AD group (`NETOPS_LDAP_UPGRADER_GROUP`) on top of admin/viewer; no approval step | The engineer runs their own change; the job enforces the checks instead |
+| 2026-10-02 | Overrides only carry forward for an identical failure | A new alarm or fault must be looked at again, not waved through |
+| 2026-10-02 | Devices with upgrade history and images used by jobs can't be deleted | The upgrade record must stay complete |
 | 2026-09-25 | Monitoring with PRTG: HTTP health endpoint, VMware, certificate and syslog sensors; no SNMP or agent on the server | Uses the existing monitoring; nothing extra listening on the server |
 
 ## Open questions
@@ -115,3 +119,4 @@ affected circuits.
 | 2026-10-01 | NETWORK-TOOLS chat | Kit made release-independent and tested on Ubuntu 26.04 (Python 3.14): build, fresh install, app behind nginx, all tests; fixed nginx duplicate `server_tokens` and the sudo-rs sudoers line; post-quantum SSH key exchange |
 | 2026-10-01 | NETWORK-TOOLS chat | First install from the bundle on the 26.04 test VM succeeded; added step 3A (quick local test) to the installer output and guide; fixed root-shell install steps |
 | 2026-10-01 | NETWORK-TOOLS chat | NetOps running on the test VM after moving its internal port to 8710 (NetBox uses 8000 there) |
+| 2026-10-02 | NETWORK-TOOLS chat | PR 2: upgrade jobs with pre/post-checks, overrides, dry-run Start and rollback, reports and device upgrade history; upgrader role; per-device upgrade account; repository by vendor |

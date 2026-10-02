@@ -20,6 +20,8 @@ from app.tools.config_backup.service import BackupService
 from app.tools.config_backup.storage import GitConfigStore
 from app.tools.circuits import api as circuits_api
 from app.tools.firmware_upgrade import api as firmware_api
+from app.tools.firmware_upgrade import jobs_api
+from app.tools.firmware_upgrade.jobs import JobService
 from app.tools.firmware_upgrade.service import FirmwareService
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -40,18 +42,21 @@ def create_app(settings: Settings | None = None, fetcher=fetch_config,
     store = GitConfigStore(settings.configs_dir)
     backup_service = BackupService(settings, cipher, store, fetcher=fetcher)
     firmware_service = FirmwareService(settings, cipher, collector=fw_collector)
+    job_service = JobService(settings, cipher, backup_service, collector=fw_collector)
     run_scheduler = settings.scheduler_enabled if start_scheduler is None else start_scheduler
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         backup_service.recover_interrupted()
         firmware_service.recover_interrupted()
+        job_service.recover_interrupted()
         if run_scheduler:
             backup_service.start()
             firmware_service.start()
         yield
         backup_service.stop()
         firmware_service.stop()
+        job_service.stop()
 
     docs = settings.api_docs
     app = FastAPI(title="NetOps Tools", lifespan=lifespan, redoc_url=None,
@@ -63,6 +68,7 @@ def create_app(settings: Settings | None = None, fetcher=fetch_config,
     app.state.login_throttle = auth.LoginThrottle()
     app.state.backup_service = backup_service
     app.state.firmware_service = firmware_service
+    app.state.job_service = job_service
 
     app.add_middleware(
         SessionMiddleware, secret_key=settings.secret_key, session_cookie="netops_session",
@@ -81,6 +87,7 @@ def create_app(settings: Settings | None = None, fetcher=fetch_config,
     app.include_router(inventory.router)
     app.include_router(backup_api.router)
     app.include_router(firmware_api.router)
+    app.include_router(jobs_api.router)
     app.include_router(circuits_api.router)
     app.include_router(monitoring.router)
 

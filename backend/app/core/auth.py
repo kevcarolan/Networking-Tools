@@ -3,6 +3,8 @@
 Roles come from AD group membership (nested groups included):
   * admin  - member of NETOPS_LDAP_ADMIN_GROUP: can add/edit/delete and run backups
   * viewer - member of NETOPS_LDAP_VIEWER_GROUP (or any domain user if unset): read-only
+  * upgrade permission (either role) - member of NETOPS_LDAP_UPGRADER_GROUP, or every
+    admin when that group isn't set: may plan and run firmware upgrade jobs
 """
 
 import logging
@@ -31,6 +33,7 @@ class User:
     username: str
     role: str
     display_name: str = ""
+    can_upgrade: bool = False  # may plan and run firmware upgrade jobs
 
     @property
     def is_admin(self) -> bool:
@@ -76,7 +79,8 @@ class Authenticator:
         s = self.settings
         if s.local_admin_password_hash and username == s.local_admin_user:
             if verify_password(password, s.local_admin_password_hash):
-                return User(username=username, role=ADMIN, display_name="Local administrator")
+                return User(username=username, role=ADMIN, display_name="Local administrator",
+                            can_upgrade=True)
             return None
         if s.ldap_url:
             try:
@@ -118,10 +122,16 @@ class Authenticator:
                 return None
             display = str(conn.entries[0].displayName or sam)
 
-            if s.ldap_admin_group and in_group(s.ldap_admin_group):
-                return User(username=sam, role=ADMIN, display_name=display)
-            if not s.ldap_viewer_group or in_group(s.ldap_viewer_group):
-                return User(username=sam, role=VIEWER, display_name=display)
+            is_admin = bool(s.ldap_admin_group) and in_group(s.ldap_admin_group)
+            # Upgrades: members of the upgrader group; if no group is set, admins.
+            can_upgrade = (in_group(s.ldap_upgrader_group) if s.ldap_upgrader_group
+                           else is_admin)
+            if is_admin:
+                return User(username=sam, role=ADMIN, display_name=display,
+                            can_upgrade=can_upgrade)
+            if not s.ldap_viewer_group or in_group(s.ldap_viewer_group) or can_upgrade:
+                return User(username=sam, role=VIEWER, display_name=display,
+                            can_upgrade=can_upgrade)
             return None
         finally:
             conn.unbind()
@@ -139,6 +149,13 @@ def current_user(request: Request) -> User:
 def require_admin(user: User = Depends(current_user)) -> User:
     if not user.is_admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Administrator role required")
+    return user
+
+
+def require_upgrader(user: User = Depends(current_user)) -> User:
+    if not user.can_upgrade:
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "Upgrade permission required (member of the upgrader group)")
     return user
 
 

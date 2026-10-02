@@ -9,9 +9,14 @@ device inventory, one AD login and one database:
 * **Firmware** shows which software version every device runs compared with the
   approved version for its model, and keeps a checksummed library of firmware images.
   Staging and upgrades come in later phases.
+* **Circuits** holds the master circuit list, uploaded from the Excel template. It is
+  linked to switches and ports, so you can see which circuits a device carries when
+  planning an upgrade. See [docs/circuits.md](docs/circuits.md).
 
 See [docs/design.md](docs/design.md) for the platform design and roadmap, and
-[docs/firmware.md](docs/firmware.md) for the firmware tool's design and upgrade plan.
+[docs/firmware.md](docs/firmware.md) for the firmware tool's design and upgrade plan, and
+[docs/upgrades.md](docs/upgrades.md) for how to run an upgrade job, and
+[docs/upgrade-lab-tests.md](docs/upgrade-lab-tests.md) for the lab sign-off before live use.
 Progress, decisions and open questions are tracked in [docs/PROGRESS.md](docs/PROGRESS.md).
 
 | Supported platform | Key | Method |
@@ -59,6 +64,7 @@ python -m app.cli hash-password            # prints NETOPS_LOCAL_ADMIN_PASSWORD_
 export NETOPS_LOCAL_ADMIN_PASSWORD_HASH='scrypt$...'
 
 uvicorn --factory app.main:create_app --host 0.0.0.0 --port 8000
+python -m app.worker        # in a second terminal: runs firmware upgrade jobs
 ```
 
 Open `http://<server>:8000`, sign in as `admin`, add a credential profile under

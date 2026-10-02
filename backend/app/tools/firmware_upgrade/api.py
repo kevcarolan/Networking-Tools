@@ -8,7 +8,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -19,10 +19,11 @@ from app.core.inventory import DeviceOut, device_out
 from app.core.models import Device
 from app.core.platforms import PLATFORMS
 from app.tools.firmware_upgrade.facts import (AHEAD, BEHIND, COMPLIANT, NO_STANDARD, UNKNOWN,
-                                              best_standard, compliance)
+                                              best_standard, compliance, vendor_for)
 from app.tools.firmware_upgrade.images import (ImageError, ImageWriter, check_expected_hash,
                                                delete_image, valid_filename)
-from app.tools.firmware_upgrade.models import DeviceFacts, FirmwareImage, FirmwareStandard
+from app.tools.firmware_upgrade.models import (DeviceFacts, FirmwareImage, FirmwareStandard,
+                                               ImageInfo, UpgradeJob)
 from app.tools.firmware_upgrade.service import FirmwareService, ensure_facts
 
 router = APIRouter(prefix="/api/firmware", tags=["firmware"])
@@ -283,8 +284,11 @@ def delete_standard(std_id: int, db: Session = Depends(get_db),
 
 # --- Image library ----------------------------------------------------------
 
-def _image_out(i: FirmwareImage) -> dict:
+def _image_out(i: FirmwareImage, info: ImageInfo | None = None, jobs: int = 0) -> dict:
     return {"id": i.id, "filename": i.filename, "platform": i.platform,
+            "vendor": vendor_for(i.platform),
+            "recommended": bool(info and info.recommended),
+            "release_ref": info.release_ref if info else "", "job_count": jobs,
             "platform_label": PLATFORMS[i.platform].label if i.platform in PLATFORMS else i.platform,
             "version": i.version, "model_pattern": i.model_pattern, "size": i.size,
             "md5": i.md5, "sha512": i.sha512, "verified": i.verified, "notes": i.notes,
@@ -295,7 +299,10 @@ def _image_out(i: FirmwareImage) -> dict:
 def list_images(db: Session = Depends(get_db), _: User = Depends(current_user)):
     rows = db.scalars(select(FirmwareImage).order_by(FirmwareImage.platform,
                                                      FirmwareImage.uploaded_at.desc()))
-    return [_image_out(i) for i in rows]
+    infos = {i.image_id: i for i in db.scalars(select(ImageInfo))}
+    jobs = dict(db.execute(select(UpgradeJob.image_id, func.count())
+                           .group_by(UpgradeJob.image_id)).all())
+    return [_image_out(i, infos.get(i.id), jobs.get(i.id, 0)) for i in rows]
 
 
 @router.put("/images/upload", status_code=201)
@@ -375,6 +382,8 @@ def delete_image_route(image_id: int, request: Request, db: Session = Depends(ge
     if used:
         raise HTTPException(409, f"Image is linked to {len(used)} standard(s) - "
                                  "change those first")
+    if db.scalar(select(UpgradeJob.id).where(UpgradeJob.image_id == image_id).limit(1)):
+        raise HTTPException(409, "Image is part of the upgrade history and can't be deleted")
     db.delete(image)
     db.flush()
     delete_image(request.app.state.settings.firmware_dir, image.filename)

@@ -26,6 +26,7 @@ PREFIX=/opt/netops
 ETC=/etc/netops
 DATA=/var/lib/netops
 BACKUPS=/var/backups/netops
+APP_PORT=8710                  # must match deploy/netops.service and the nginx site
 SKIP_OS=""
 for arg in "$@"; do
   case "$arg" in
@@ -125,6 +126,7 @@ if [[ ! -f "$ETC/credential.key" ]]; then
 fi
 
 install -m 0644 "$STAGE/deploy/netops.service" /etc/systemd/system/netops.service
+install -m 0644 "$STAGE/deploy/netops-worker.service" /etc/systemd/system/netops-worker.service
 install -m 0644 "$STAGE/deploy/netops-backup.service" /etc/systemd/system/netops-backup.service
 install -m 0644 "$STAGE/deploy/netops-backup.timer" /etc/systemd/system/netops-backup.timer
 install -m 0750 "$STAGE/deploy/netops-backup.sh" /usr/local/sbin/netops-backup
@@ -133,17 +135,32 @@ if [[ -d /etc/audit/rules.d ]]; then
   install -m 0640 "$STAGE/deploy/hardening/audit-netops.rules" /etc/audit/rules.d/netops.rules
   command -v augenrules >/dev/null && augenrules --load >/dev/null 2>&1 || true
 fi
-if [[ -d /etc/nginx/sites-available && ! -f /etc/nginx/sites-available/netops ]]; then
-  install -m 0644 "$STAGE/deploy/nginx-netops.conf" /etc/nginx/sites-available/netops
-  echo "Created /etc/nginx/sites-available/netops - set server_name and the certificate, then enable it."
+NGINX_SITE=/etc/nginx/sites-available/netops
+if [[ -d /etc/nginx/sites-available && ! -f "$NGINX_SITE" ]]; then
+  install -m 0644 "$STAGE/deploy/nginx-netops.conf" "$NGINX_SITE"
+  echo "Created $NGINX_SITE - set server_name and the certificate, then enable it."
+elif [[ -f "$NGINX_SITE" ]] && grep -q 'proxy_pass http://127.0.0.1:8000;' "$NGINX_SITE"; then
+  # Releases before October 2026 used port 8000, which clashes with other tools.
+  sed -i "s|proxy_pass http://127.0.0.1:8000;|proxy_pass http://127.0.0.1:$APP_PORT;|" "$NGINX_SITE"
+  NGINX_PORT_CHANGED=1
+  echo "Updated $NGINX_SITE: the app now listens on port $APP_PORT instead of 8000."
 fi
 
 say "Switching to $VERSION"
+# Never restart the upgrade worker in the middle of a live device upgrade.
+if have_systemd && systemctl is-active --quiet netops-worker && [[ -z "${FORCE:-}" ]]; then
+  rc=0
+  /usr/local/sbin/netops-cli upgrades-running || rc=$?
+  if [[ $rc -eq 3 ]]; then
+    die "a live upgrade job is running (above). Wait until it has finished or paused, or run with FORCE=1"
+  fi
+fi
 SERVICE_WAS_RUNNING=""
 if have_systemd && systemctl is-active --quiet netops; then
   SERVICE_WAS_RUNNING=1
   echo "Backing up before the upgrade..."
   /usr/local/sbin/netops-backup pre-upgrade
+  systemctl stop netops-worker 2>/dev/null || true
   systemctl stop netops
 fi
 rm -rf "$REL"
@@ -153,7 +170,7 @@ ln -sfn "$REL" "$PREFIX/current.new" && mv -T "$PREFIX/current.new" "$PREFIX/cur
 health() {
   for _ in $(seq 1 30); do
     "$PREFIX/current/venv/bin/python" -c \
-      "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)" \
+      "import urllib.request; urllib.request.urlopen('http://127.0.0.1:$APP_PORT/api/health', timeout=2)" \
       2>/dev/null && return 0
     sleep 1
   done
@@ -164,10 +181,15 @@ if have_systemd; then
   systemctl daemon-reload
   systemctl enable --quiet netops-backup.timer
   systemctl start netops-backup.timer
+  if [[ -n "${NGINX_PORT_CHANGED:-}" ]] && nginx -t 2>/dev/null; then
+    systemctl reload nginx || true
+  fi
   if [[ -n "$SERVICE_WAS_RUNNING" ]]; then
     systemctl start netops
     if health; then
-      echo "NetOps Tools $VERSION is running."
+      systemctl enable --quiet netops-worker
+      systemctl start netops-worker
+      echo "NetOps Tools $VERSION is running (web app and upgrade worker)."
     else
       echo "The new release did not become healthy - rolling back."
       journalctl -u netops -n 30 --no-pager || true
@@ -175,6 +197,7 @@ if have_systemd; then
         ln -sfn "$CURRENT" "$PREFIX/current"
         systemctl restart netops
         if health; then
+          systemctl start netops-worker 2>/dev/null || true
           die "rolled back to $(basename "$CURRENT"); fix the problem above and try again"
         fi
         die "the rollback also failed to start; check 'journalctl -u netops'"
@@ -201,7 +224,10 @@ Next steps (docs/install-airgap.md, section "First-time configuration"):
      /etc/nginx/sites-available/netops, then:
        ln -sf /etc/nginx/sites-available/netops /etc/nginx/sites-enabled/netops
        rm -f /etc/nginx/sites-enabled/default && nginx -t && systemctl reload nginx
-  3. sudo systemctl enable --now netops
-  4. Apply the hardening steps in docs/security-hardening.md.
+  3. sudo systemctl enable --now netops netops-worker
+  3A. TEST MACHINES ONLY, instead of 1-3: quick local test with a local admin and a
+      self-signed certificate - see docs/install-airgap.md, step 3A.
+  4. Production: apply the hardening steps in docs/security-hardening.md
+     before adding real device credentials.
 EOF
 fi

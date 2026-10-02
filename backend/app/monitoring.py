@@ -11,7 +11,7 @@ import shutil
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db, utcnow
@@ -20,6 +20,8 @@ from app.tools.config_backup.models import FAILED, NEVER, BackupState
 from app.tools.config_backup.service import ensure_states
 from app.tools.firmware_upgrade.api import _rows as firmware_rows
 from app.tools.firmware_upgrade.facts import BEHIND
+from app.tools.firmware_upgrade.jobs import worker_status
+from app.tools.firmware_upgrade.models import BUSY_STATES, UpgradeJob
 
 router = APIRouter(prefix="/api/monitoring", tags=["monitoring"], include_in_schema=False)
 
@@ -86,6 +88,17 @@ def prtg(request: Request, db: Session = Depends(get_db)):
         _channel("Hours since server backup", backup_age, "Custom", max_warning=26, max_error=50),
     ]
     result[-1]["customunit"] = "h"
+    # Upgrade jobs (channels added Oct 2026; the ones above keep their names)
+    worker = worker_status(db)
+    busy = db.scalar(select(func.count()).select_from(UpgradeJob)
+                     .where(UpgradeJob.status.in_(BUSY_STATES))) or 0
+    attention = db.scalar(select(func.count()).select_from(UpgradeJob).where(
+        UpgradeJob.status.in_(("needs_attention", "failed")))) or 0
+    result += [
+        _channel("Upgrade worker up", 1 if worker["alive"] else 0, min_error=0.5),
+        _channel("Upgrades running", busy),
+        _channel("Upgrade jobs failed or needing attention", attention, max_warning=0),
+    ]
     text = (f"{failing} device(s) failing backup, {behind} behind firmware standard"
             if failing or behind else "OK")
     return {"prtg": {"result": result, "text": text}}

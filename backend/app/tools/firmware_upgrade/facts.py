@@ -207,3 +207,11 @@ def compliance(current: str | None, target: str | None) -> str:
         return UNKNOWN
     c = compare_versions(current, target)
     return COMPLIANT if c == 0 else BEHIND if c < 0 else AHEAD
+
+
+VENDORS = {"cisco": "Cisco", "allied": "Allied Telesis"}
+
+
+def vendor_for(platform: str) -> str:
+    """Repository section for a platform key ('cisco_ios' -> 'Cisco')."""
+    return VENDORS.get(platform.split("_")[0], platform.split("_")[0].title())

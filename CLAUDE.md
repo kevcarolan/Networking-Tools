@@ -12,7 +12,8 @@ and one database.
 | Tool | Folder | Status |
 |---|---|---|
 | Config Backup | `backend/app/tools/config_backup/` | MVP done |
-| Firmware (version report, image library, later upgrades) | `backend/app/tools/firmware_upgrade/` | Phase 1 done, phase 2 next |
+| Firmware (version report, image library, upgrade jobs) | `backend/app/tools/firmware_upgrade/` | Built for every platform; in lab testing ([docs/upgrades.md](docs/upgrades.md), [docs/upgrade-lab-tests.md](docs/upgrade-lab-tests.md)) |
+| Circuits (master circuit list from Excel) | `backend/app/tools/circuits/` | Done ([docs/circuits.md](docs/circuits.md)) |
 
 Design docs: [docs/design.md](docs/design.md) (platform and backup tool),
 [docs/firmware.md](docs/firmware.md) (firmware tool and upgrade plan).
@@ -22,7 +23,8 @@ Design docs: [docs/design.md](docs/design.md) (platform and backup tool),
 * About 100 devices: Cisco IOS/IOS-XE, NX-OS, ASA, Firepower FTD and Allied Telesis AlliedWare Plus.
 * IOS-XE switches run in **install mode**.
 * FTD is managed locally with **FDM** (not FMC), so FTD upgrades go through the FDM REST API.
-* There is **one failover pair**, assumed to be ASA. Confirm with the user before building HA upgrades.
+* There is **one failover pair: FTD in FDM HA**. ASA failover is supported too; the user wants the
+  tool to fit other designs, so procedures are drivers with selectable paths.
 * Login is Active Directory over LDAPS, with admin and viewer groups plus a break-glass local admin.
 * The production server is on an **air-gapped** network: **Ubuntu 26.04** (Python 3.14, nginx 1.28,
   sudo-rs, Rust coreutils), systemd and nginx, installed
@@ -50,6 +52,18 @@ Design docs: [docs/design.md](docs/design.md) (platform and backup tool),
   `api()` helpers in `app.js`, keep styles on the CSS variables in `style.css` (light and dark),
   and hide admin-only controls with `data-admin`.
 * Anything that changes something is admin-only and is written to the audit log with `audit()`.
+  Upgrade job actions need the **upgrader** permission instead (`require_upgrader`, `User.can_upgrade`;
+  hide those controls with `data-upgrader`).
+* Upgrade jobs:
+  * checks and parsers in `checks.py`; one **driver** per platform in `drivers/` (paths, extra
+    pre-checks, the procedure as `Step`s); the engine in `jobs.py` (`JobService`, `allowed_actions`);
+    device access in `deviceio.py` (SSH change/copy) and `fdm.py` (FDM API);
+  * the web app only **queues** requests (`request_action`); the **worker** (`app/worker.py`,
+    `netops-worker.service`) runs them. Never talk to a device for a job from the web process;
+  * a dry run and a live run use the same steps: only `StepContext.change/transfer/fdm_change`
+    differ. Live needs `NETOPS_UPGRADE_LIVE_PLATFORMS`, a window and the typed device name;
+  * tests drive every path against `tests/fake_network.py`. Extend the simulator with any new
+    command a driver sends.
 * Device access is always injectable (`fetcher=` / `fw_collector=` in `create_app`), so tests
   never touch SSH. Parser tests use real sample output in `backend/tests/firmware_samples.py`.
 

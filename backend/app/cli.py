@@ -5,6 +5,9 @@
   python -m app.cli backup <device-name>     # run one backup now and print the result
   python -m app.cli firmware-check <device-name> [--raw]
                                              # read one device's version and show what was parsed
+  python -m app.cli upgrades-running         # list upgrade jobs that are mid-step
+                                             # (exit code 3 if a LIVE one is: don't restart
+                                             # the worker now)
 
 CSV columns: name,address,platform,site,credential,frequency_minutes,notes
 (`credential` is the name of an existing credential profile; `site`,
@@ -147,6 +150,30 @@ def _firmware_check(args) -> int:
     return 0
 
 
+def _upgrades_running(_args) -> int:
+    from app.core.config import get_settings
+    from app.core.db import init_engine, session_scope
+    from app.core.models import Device
+    from app.tools.firmware_upgrade.jobs import pending_request
+    from app.tools.firmware_upgrade.models import BUSY_STATES, UpgradeJob
+
+    settings = get_settings()
+    init_engine(settings.database_url)
+    live = 0
+    with session_scope() as db:
+        for job in db.scalars(select(UpgradeJob)):
+            req = pending_request(db, job.id)
+            if job.status not in BUSY_STATES and not (req and req.claimed_at):
+                continue
+            name = db.get(Device, job.device_id).name
+            mode = "dry run" if job.dry_run else "LIVE"
+            print(f"#{job.id} {name}: {job.status} ({mode}) {job.current_step}")
+            live += not job.dry_run
+    if not live:
+        print("No live upgrade is running.")
+    return 3 if live else 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -161,6 +188,7 @@ def main(argv=None) -> int:
     p.add_argument("name")
     p.add_argument("--raw", action="store_true", help="also print the raw command output")
     p.set_defaults(func=_firmware_check)
+    sub.add_parser("upgrades-running").set_defaults(func=_upgrades_running)
     args = parser.parse_args(argv)
     return args.func(args)
 

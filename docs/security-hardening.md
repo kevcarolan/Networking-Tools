@@ -30,7 +30,7 @@ The steps below are ordered so each one builds on the last. Template files are i
 - [ ] §4 Named admin accounts, SSH keys only (hardware keys if possible), sudo logged
 - [ ] §5 Host firewall: default deny, **inbound and outbound**
 - [ ] §6 Kernel and network settings
-- [ ] §7 Service sandboxing checked (`systemd-analyze security netops`)
+- [ ] §7 Service sandboxing checked (`systemd-analyze security netops` and `netops-worker`)
 - [ ] §8 HTTPS with an internal CA certificate; app settings locked down
 - [ ] §9 PRTG sensors and syslog forwarding in place, with alerts ([monitoring-prtg.md](monitoring-prtg.md))
 - [ ] §10 File-integrity baseline (AIDE); audit rules loaded
@@ -112,7 +112,7 @@ remove what isn't needed:
 sudo apt purge -y snapd cloud-init modemmanager avahi-daemon cups* 2>/dev/null
 sudo apt autoremove --purge -y
 systemctl list-units --type=service --state=running    # review: anything you don't recognise?
-ss -tulpn                                              # only sshd (22), nginx (80/443), chronyd and the app on 127.0.0.1:8000
+ss -tulpn                                              # only sshd (22), nginx (80/443), chronyd and the app on 127.0.0.1:8710
 ```
 
 * Mount `/var/lib/netops` with `nodev,nosuid,noexec` (install-airgap.md §2).
@@ -171,7 +171,7 @@ be able to use this server to reach anything except the devices it manages.
 
 ```bash
 sudo cp /opt/netops/current/deploy/hardening/nftables.conf /etc/nftables.conf
-sudo nano /etc/nftables.conf        # set ADMIN_NETS, GUI_NETS, DEVICE_NETS, DC/DNS/NTP/SYSLOG hosts
+sudo nano /etc/nftables.conf        # set ADMIN_NETS, GUI_NETS, DEVICE_NETS, FDM_HOSTS, DC/DNS/NTP/SYSLOG hosts
 sudo nft -c -f /etc/nftables.conf   # syntax check only
 ```
 
@@ -205,15 +205,18 @@ addresses, restrict debugging of other processes and block unprivileged BPF. The
 What the installer set up, for your security review:
 
 * The app runs as **`netops`**, a system account with no password and no shell. It
-  listens only on **127.0.0.1:8000**, so it can only be reached through nginx.
+  listens only on **127.0.0.1:8710**, so it can only be reached through nginx.
 * **The code is owned by root** and read-only to the service. A flaw in the app can't be
   used to change the app itself.
-* **Sandbox** (`/etc/systemd/system/netops.service`):
+* **Two services, one sandbox:** `netops` (the web app) and `netops-worker` (carries out
+  upgrade jobs; listens on nothing). Restarting or upgrading the web app never interrupts
+  a device upgrade. The installer won't restart the worker during a live upgrade.
+* **Sandbox** (`/etc/systemd/system/netops.service` and `netops-worker.service`):
   * the service can write only to `/var/lib/netops`;
   * it can't see home folders or devices;
   * it can't gain privileges or load kernel modules;
   * it can only use normal network sockets and a limited set of system calls.
-  Check the score with `systemd-analyze security netops`.
+  Check the score with `systemd-analyze security netops` (and `netops-worker`).
 * **Secrets:** `credential.key` and `netops.env` are `root:netops 0640`. Device passwords
   are encrypted in the database with that key, so a copy of the database alone exposes nothing.
 * **Audit events** (logins, failed logins, every change) are written to the database
@@ -310,8 +313,15 @@ The server's credentials are only as dangerous as the devices allow. On the devi
 * **Least-privilege accounts, through TACACS+ or RADIUS:**
   * The **backup account** may run only `show` commands, `dir`, `terminal length`/`width`
     and `enable`. Use TACACS+ command authorization to enforce this.
-  * The **upgrade account** (firmware phase 2 onwards) is separate. Keep it **disabled
-    except during change windows**.
+  * The **upgrade account** is separate and privileged (it copies images, changes the
+    boot settings and reloads). Keep it **disabled except during change windows**, and
+    set it per device in NetOps (Firmware › Versions › Upgrade settings).
+  * **For the image copy**, enable the SCP server only where upgrades run: IOS/IOS-XE
+    `ip scp server enable`, NX-OS `feature scp-server`, ASA `ssh scopy enable`, AW+
+    `ssh server scp`. You can turn it off again after the change.
+  * **FTD:** allow the NetOps server in FDM's HTTPS management access list (only during
+    the change if you prefer), and trust the FDM certificate fingerprint in NetOps after
+    comparing it with FDM. NetOps refuses to talk to an FDM whose certificate changed.
   * Use different credentials for firewalls and switches (separate credential profiles).
   * Rotate the passwords at least yearly, and immediately when someone with access leaves.
 * **Log device logins centrally**, and alert when the backup account logs in from
@@ -344,7 +354,7 @@ The server's credentials are only as dangerous as the devices allow. On the devi
 ## 13. Quarterly checks
 
 - [ ] Ubuntu and NetOps up to date; `pip-audit.txt` in the latest bundle is clean
-- [ ] `systemd-analyze security netops` still scores the same
+- [ ] `systemd-analyze security netops` (and `netops-worker`) still score the same
 - [ ] Members of `netops-admins`, `NetOps-Admins` and `NetOps-Viewers` reviewed
 - [ ] `authorized_keys` on the server reviewed; no unknown keys
 - [ ] Firewall rules still match the network; no unexplained `nft-out-drop` entries

@@ -160,11 +160,12 @@ The build:
    # then on the server:
    sudo install -d -m 0700 /root/netops-install && sudo mv /tmp/netops-bundle-* /root/netops-install/
    ```
-3. **Verify, on the server:**
+3. **Verify, on the server.** The folder is readable only by root, so open a root shell first:
    ```bash
+   sudo -i                                 # root shell; type "exit" when finished
    cd /root/netops-install
    sha256sum netops-bundle-*.tar.gz        # must match the value in the change ticket
-   sudo sha256sum -c netops-bundle-*.tar.gz.sha256
+   sha256sum -c netops-bundle-*.tar.gz.sha256
    ```
    **If the hash doesn't match, stop.** Don't extract the file.
 
@@ -172,11 +173,16 @@ The build:
 
 ## 5. Install
 
+In the root shell from §4 (or `sudo -i` again):
+
 ```bash
 cd /root/netops-install
-sudo tar -xzf netops-bundle-*.tar.gz
-sudo bash netops-bundle-*/install.sh
+tar -xzf netops-bundle-*.tar.gz
+bash netops-bundle-*/install.sh
+exit                                    # leave the root shell
 ```
+
+If there is more than one bundle in the folder, use the full file names instead of `*`.
 
 The installer:
 
@@ -212,45 +218,112 @@ It does **not** start the service on a first install.
 
 ## 6. First-time configuration
 
-1. **Save the encryption key offline, now.** Without `/etc/netops/credential.key`, the
-   stored device passwords can't be decrypted. It is deliberately **not** in the nightly
-   backups. Copy it to your password vault or an encrypted USB key kept in a safe:
-   ```bash
-   sudo cat /etc/netops/credential.key
-   ```
-2. **Edit the settings:** `sudo nano /etc/netops/netops.env`
-   * `NETOPS_LDAP_URL`, `NETOPS_LDAP_DOMAIN`, `NETOPS_LDAP_BASE_DN` and the two group DNs.
-     Always set `NETOPS_LDAP_VIEWER_GROUP`; if it's empty, **every** domain user can sign in.
-   * Copy the AD CA certificate to `/etc/netops/ad-ca.pem` (`chmod 0644`) and set
-     `NETOPS_LDAP_CA_FILE=/etc/netops/ad-ca.pem`.
-   * **Break-glass admin:** leave `NETOPS_LOCAL_ADMIN_PASSWORD_HASH` empty unless you
-     want a login that works when AD is down. If you do, use a long random password kept
-     in the vault. Generate the hash with `sudo netops-cli hash-password`.
-   * Keep `NETOPS_SESSION_HTTPS_ONLY=true`, `NETOPS_API_DOCS=false` and
-     `NETOPS_VIEWERS_CAN_READ_CONFIGS=false`.
-3. **TLS and nginx:**
-   ```bash
-   sudo install -m 0600 netops.crt netops.key /etc/netops/tls/     # full chain in netops.crt
-   sudo nano /etc/nginx/sites-available/netops                     # set server_name
-   sudo ln -sf /etc/nginx/sites-available/netops /etc/nginx/sites-enabled/netops
-   sudo rm -f /etc/nginx/sites-enabled/default
-   sudo nginx -t && sudo systemctl reload nginx
-   ```
-4. **Start the service:**
-   ```bash
-   sudo systemctl enable --now netops
-   systemctl status netops
-   journalctl -u netops -f                  # watch the log while you sign in
-   ```
-5. Open `https://netops.corp.local`, sign in with an AD account from `NetOps-Admins`,
-   then check that a `NetOps-Viewers` account can sign in and can't change anything.
-6. **Harden the server now:** work through [security-hardening.md](security-hardening.md)
-   §3–§9 (SSH, firewall, kernel, accounts, logging). Do it before you add device credentials.
-   Then set up the PRTG sensors ([monitoring-prtg.md](monitoring-prtg.md)).
-7. Add the credential profiles and devices. Bulk import:
-   `sudo cp devices.csv /tmp/ && sudo netops-cli import-csv /tmp/devices.csv`.
-8. **Check the firmware parsers** on one device of each platform and model:
-   `sudo netops-cli firmware-check core-sw1 --raw`.
+These steps match the numbered **Next steps** that `install.sh` prints at the end.
+
+| Step | What | When |
+|---|---|---|
+| 1–3 | Settings, certificate and nginx, start the service | **Production**: the real server |
+| 3A | Quick test: local admin, self-signed certificate, no AD | **Test machines only**, instead of 1–3 |
+| 4 | Harden the server | **Production**, before you add real device credentials |
+| 5–6 | Add devices; check the firmware parsers | After 3 (or 3A) |
+
+**Before anything else, save the encryption key offline.** Without
+`/etc/netops/credential.key`, the stored device passwords can't be decrypted. It is
+deliberately **not** in the nightly backups. Copy it to your password vault, or to an
+encrypted USB key kept in a safe:
+```bash
+sudo cat /etc/netops/credential.key
+```
+
+### 1. Settings
+
+`sudo nano /etc/netops/netops.env`
+
+* `NETOPS_LDAP_URL`, `NETOPS_LDAP_DOMAIN`, `NETOPS_LDAP_BASE_DN` and the two group DNs.
+  Always set `NETOPS_LDAP_VIEWER_GROUP`; if it's empty, **every** domain user can sign in.
+* Copy the AD CA certificate to `/etc/netops/ad-ca.pem` (`chmod 0644`) and set
+  `NETOPS_LDAP_CA_FILE=/etc/netops/ad-ca.pem`.
+* **Break-glass admin:** leave `NETOPS_LOCAL_ADMIN_PASSWORD_HASH` empty unless you want
+  a login that works when AD is down. If you do, use a long random password kept in the
+  vault. Generate the hash with `sudo netops-cli hash-password`.
+* Keep `NETOPS_SESSION_HTTPS_ONLY=true`, `NETOPS_API_DOCS=false` and
+  `NETOPS_VIEWERS_CAN_READ_CONFIGS=false`.
+
+### 2. TLS certificate and nginx
+
+```bash
+sudo install -m 0600 netops.crt netops.key /etc/netops/tls/     # full chain in netops.crt
+sudo nano /etc/nginx/sites-available/netops                     # set server_name
+sudo ln -sf /etc/nginx/sites-available/netops /etc/nginx/sites-enabled/netops
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### 3. Start the services and sign in
+
+```bash
+sudo systemctl enable --now netops netops-worker
+systemctl status netops netops-worker --no-pager   # both "active (running)"
+journalctl -u netops -f                  # watch the log while you sign in (Ctrl+C to stop)
+```
+
+Open `https://netops.corp.local`. Sign in with an AD account from `NetOps-Admins`, then
+check that a `NetOps-Viewers` account can sign in but can't change anything.
+
+### 3A. Quick local test (temporary; test machines only, instead of 1–3)
+
+Use this to see the app running on a test machine before AD and a CA certificate are
+ready. It signs in with the local admin and uses a self-signed certificate. **Don't use
+it on the production server.** There, do steps 1–3.
+
+```bash
+# Turn AD off, and create a local admin login. Do the login part in a root shell,
+# so only one thing asks for a password at a time. It asks twice; use 12+ characters.
+sudo sed -i 's|^NETOPS_LDAP_URL=.*|NETOPS_LDAP_URL=|' /etc/netops/netops.env
+sudo sed -i '/^NETOPS_LOCAL_ADMIN_PASSWORD_HASH=/d' /etc/netops/netops.env
+sudo -i
+netops-cli hash-password >> /etc/netops/netops.env
+grep LOCAL_ADMIN /etc/netops/netops.env      # one line starting NETOPS_LOCAL_ADMIN_PASSWORD_HASH='scrypt$
+exit
+
+# Temporary self-signed certificate (browsers will warn about it)
+sudo openssl req -x509 -newkey rsa:2048 -nodes -days 90 -subj "/CN=$(hostname)" \
+  -addext "subjectAltName=DNS:$(hostname),DNS:localhost" \
+  -keyout /etc/netops/tls/netops.key -out /etc/netops/tls/netops.crt
+sudo chmod 600 /etc/netops/tls/netops.key
+
+# Turn on the website and start the app
+sudo ln -sf /etc/nginx/sites-available/netops /etc/nginx/sites-enabled/netops
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
+sudo systemctl enable --now netops netops-worker
+systemctl status netops netops-worker --no-pager
+```
+
+Open **https://localhost** on the machine (or `https://<its IP>` from another PC), accept
+the certificate warning, and sign in as **admin**. If the service shows **failed**, check
+`journalctl -u netops -n 30 --no-pager`.
+
+To move from 3A to a real setup later: do step 1 (which also replaces the test admin
+hash), then step 2 with the CA certificate, then `sudo systemctl restart netops`.
+
+### 4. Harden the server
+
+Work through [security-hardening.md](security-hardening.md) §3–§9: SSH, firewall,
+kernel, accounts, logging. Do it on the production server **before** you add real device
+credentials. Then set up the PRTG sensors ([monitoring-prtg.md](monitoring-prtg.md)).
+On an internet-connected test machine, leave out the firewall (§5): it blocks outbound
+traffic, including internet access.
+
+### 5. Add credential profiles and devices
+
+In the GUI, or in bulk:
+`sudo cp devices.csv /tmp/ && sudo netops-cli import-csv /tmp/devices.csv`
+
+### 6. Check the firmware parsers
+
+On one device of each platform and model:
+`sudo netops-cli firmware-check core-sw1 --raw`
 
 ---
 
@@ -349,4 +422,7 @@ device still works. That proves the stored passwords can still be decrypted.
 | AD login fails | `journalctl -u netops` shows the LDAP error. Check the time (`chronyc tracking`), the CA file, the firewall rule to the DCs on 636 |
 | Device backups time out | The firewall output rule to `DEVICE_NETS` on port 22; the device's SSH access list (security-hardening.md §11) |
 | Something was blocked | `journalctl -k | grep nft-` shows dropped traffic in and out |
-| Check the sandbox | `systemd-analyze security netops` (a lower score is better) |
+| Check the sandbox | `systemd-analyze security netops` and `… netops-worker` (a lower score is better) |
+| "The upgrade worker isn't running" in the GUI | `systemctl status netops-worker`; `journalctl -u netops-worker -n 50` |
+| `install.sh` refuses: "a live upgrade job is running" | A device is being upgraded. Wait until the job has finished or paused (`sudo netops-cli upgrades-running`), or run with `FORCE=1` if you are sure |
+| FTD upgrade: "FDM API unreachable" | The firewall output rule to `FDM_HOSTS` on port 443, and FDM's management access list |

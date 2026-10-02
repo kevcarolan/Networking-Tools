@@ -28,6 +28,7 @@
       <nav id="nav">
         <button data-view="backups" class="active">Config backups</button>
         <button data-view="firmware">Firmware</button>
+        <button data-view="circuits">Circuits</button>
         <button data-view="credentials" data-admin>Credentials</button>
         <button data-view="audit" data-admin>Audit log</button>
       </nav>
@@ -71,6 +72,7 @@
           <button data-tab="versions" class="active">Versions</button>
           <button data-tab="standards">Standards</button>
           <button data-tab="images">Image library</button>
+          <button data-tab="jobs">Upgrade jobs</button>
         </div>
 
         <div id="fw-versions" class="fw-pane">
@@ -120,17 +122,71 @@
 
         <div id="fw-images" class="fw-pane" hidden>
           <div class="toolbar">
-            <p class="muted">Firmware files kept on the server, ready for upgrades. Paste the vendor's MD5 or SHA-512 when uploading to verify the download.</p>
+            <p class="muted">The firmware repository, by vendor. Download the release you want from the vendor, then upload it here; paste the vendor's MD5 or SHA-512 to verify the download.</p>
             <span class="spacer"></span>
             <button id="fw-upload" class="primary" data-admin>+ Upload image</button>
           </div>
           <div class="table-wrap">
             <table id="fw-image-table">
-              <thead><tr><th>File</th><th>Platform</th><th>Version</th><th>Models</th><th>Size</th><th>MD5</th><th>Uploaded</th><th></th></tr></thead>
+              <thead><tr><th>Vendor</th><th>File</th><th>Platform</th><th>Version</th><th>Models</th><th>Size</th><th>MD5</th><th>Uploaded</th><th></th></tr></thead>
               <tbody></tbody>
             </table>
             <p id="fw-images-empty" class="empty" hidden>No images uploaded yet.</p>
           </div>
+        </div>
+
+        <div id="fw-jobs" class="fw-pane" hidden>
+          <div id="worker-banner"></div>
+          <div id="job-summary" class="tiles"></div>
+          <div class="toolbar">
+            <p class="muted">One device (or HA pair) per job. Pre-checks must pass, or be overridden with a reason, before Start. A live upgrade only starts inside its change window; a dry run rehearses the same steps without changing anything.</p>
+            <span class="spacer"></span>
+            <select id="job-filter">
+              <option value="open">Open jobs</option>
+              <option value="">All jobs</option>
+              <option value="closed">Finished jobs</option>
+            </select>
+            <button id="job-new" class="primary" data-upgrader>+ New upgrade job</button>
+          </div>
+          <div class="table-wrap">
+            <table id="job-table">
+              <thead><tr><th>#</th><th>Device</th><th>Upgrade</th><th>Status</th><th>Change</th><th>Planned</th><th>Created</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+            <p id="job-empty" class="empty" hidden>No upgrade jobs.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Circuits -->
+      <section id="view-circuits" class="view" hidden>
+        <div id="ct-summary" class="tiles"></div>
+        <p id="ct-source" class="muted"></p>
+        <div class="toolbar">
+          <input id="ct-search" type="search" placeholder="Search device, IP, MAC, port, drawing…">
+          <select id="ct-filter-service"><option value="">All services</option></select>
+          <select id="ct-filter-switch"><option value="">All switches</option></select>
+          <select id="ct-filter-vlan"><option value="">All VLANs</option></select>
+          <select id="ct-filter-match">
+            <option value="">All rows</option>
+            <option value="matched">Linked to a NetOps device</option>
+            <option value="unlinked">Not linked</option>
+            <option value="warnings">With warnings</option>
+          </select>
+          <span class="spacer"></span>
+          <a class="button" href="/api/circuits/export.csv" download>Export CSV</a>
+          <button id="ct-history">Import history</button>
+          <button id="ct-upload" class="primary" data-admin>Upload spreadsheet</button>
+        </div>
+        <div class="table-wrap">
+          <table id="ct-table">
+            <thead><tr>
+              <th></th><th>Service</th><th>Device</th><th>Type / make</th><th>MAC</th><th>Location</th>
+              <th>IP</th><th>VLAN</th><th>Switch / port</th><th>Drawing</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+          <p id="ct-empty" class="empty" hidden></p>
         </div>
       </section>
 
@@ -222,9 +278,13 @@
     <div class="tabs" id="detail-tabs">
       <button data-tab="runs" class="active">Backup history</button>
       <button data-tab="versions">Config versions</button>
+      <button data-tab="circuits">Circuits</button>
+      <button data-tab="upgrades">Upgrade history</button>
     </div>
     <div id="detail-runs" class="detail-pane"></div>
     <div id="detail-versions" class="detail-pane" hidden></div>
+    <div id="detail-circuits" class="detail-pane" hidden></div>
+    <div id="detail-upgrades" class="detail-pane" hidden></div>
     <pre id="detail-text" class="config" hidden></pre>
   </dialog>
 
@@ -266,6 +326,105 @@
         <button value="save" class="primary">Upload</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- Circuit list upload + preview -->
+  <dialog id="ct-upload-dialog" class="wide">
+    <div class="detail-head">
+      <h2>Upload circuit list</h2>
+      <button id="ct-upload-close" class="ghost">Close</button>
+    </div>
+    <form id="ct-upload-form" class="form">
+      <p class="muted">Choose the master circuit list workbook (.xlsx). It is checked and shown here
+        first; the live list only changes when you click <b>Make this the live list</b>.</p>
+      <label>Workbook <input name="file" type="file" accept=".xlsx,.xlsm" required></label>
+      <p class="error" hidden></p>
+      <div class="dialog-actions"><button class="primary" value="check">Check file</button></div>
+    </form>
+    <div id="ct-preview" hidden></div>
+  </dialog>
+
+  <!-- Circuit import history -->
+  <dialog id="ct-history-dialog" class="wide">
+    <div class="detail-head">
+      <h2>Circuit list imports</h2>
+      <button id="ct-history-close" class="ghost">Close</button>
+    </div>
+    <div id="ct-history-body" class="detail-pane"></div>
+  </dialog>
+
+  <!-- New upgrade job -->
+  <dialog id="job-new-dialog">
+    <form id="job-new-form" method="dialog" class="form">
+      <h2>New upgrade job</h2>
+      <label>Device <select name="device_id" required></select></label>
+      <p id="job-new-device" class="muted"></p>
+      <label>Firmware image <select name="image_id" required></select></label>
+      <label>Upgrade path <select name="path" required></select></label>
+      <p id="job-new-path" class="muted"></p>
+      <fieldset class="mode">
+        <legend>Mode</legend>
+        <label class="inline"><input type="radio" name="mode" value="dry" checked> <span>Dry run: check and rehearse, change nothing</span></label>
+        <label class="inline"><input type="radio" name="mode" value="live"> <span><b>Live upgrade</b>: copies, reloads and commits</span></label>
+        <small id="job-new-live"></small>
+      </fieldset>
+      <div class="grid2">
+        <label>Change reference <input name="change_ref" maxlength="100" placeholder="CHG0012345"></label>
+        <span></span>
+        <label>Window start <input name="planned_start" type="datetime-local"></label>
+        <label>Window end <input name="planned_end" type="datetime-local"></label>
+      </div>
+      <label>Notes <textarea name="notes" rows="2" maxlength="5000"></textarea></label>
+      <p class="error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" id="job-new-settings" class="ghost" data-admin>Upgrade settings…</button>
+        <span class="spacer"></span>
+        <button value="cancel" formnovalidate class="ghost">Cancel</button>
+        <button value="save" class="primary">Create job</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Per-device upgrade settings (admin) -->
+  <dialog id="ups-dialog">
+    <form id="ups-form" method="dialog" class="form">
+      <h2 id="ups-title">Upgrade settings</h2>
+      <label>Upgrade account <select name="upgrade_credential_id"></select>
+        <small>A privileged account used only for upgrades (never the backup account).</small></label>
+      <label>Usual upgrade path <select name="default_path"></select></label>
+      <label>Pair / peer device <select name="peer_device_id"></select>
+        <small>The other unit of an HA, failover or vPC pair. Both units are set to point at each other. ASA: the active and standby addresses.</small></label>
+      <label>File system <input name="file_system" maxlength="30" placeholder="default (flash:, bootflash:, disk0:/)"></label>
+      <fieldset id="ups-fdm">
+        <legend>FDM certificate (FTD)</legend>
+        <label>Trusted SHA-256 fingerprint <input name="fdm_fingerprint" maxlength="100" placeholder="not trusted yet"></label>
+        <button type="button" id="ups-fetch" class="small">Fetch from the device</button>
+        <small>Compare the fingerprint with the one FDM shows (Device › System Settings › Management Access / the browser's certificate view) before saving.</small>
+      </fieldset>
+      <p class="error" hidden></p>
+      <div class="dialog-actions">
+        <button value="cancel" formnovalidate class="ghost">Cancel</button>
+        <button value="save" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Upgrade job window -->
+  <dialog id="job-dialog" class="wide">
+    <div class="detail-head">
+      <h2 id="job-title"></h2>
+      <button id="job-close" class="ghost">Close</button>
+    </div>
+    <div id="job-banner"></div>
+    <div id="job-info" class="job-info"></div>
+    <div id="job-actions" class="dialog-actions job-actions"></div>
+    <div class="tabs" id="job-tabs">
+      <button data-tab="procedure">Procedure</button>
+      <button data-tab="checks" class="active">Checks</button>
+      <button data-tab="circuits">Affected circuits</button>
+      <button data-tab="log">Log</button>
+    </div>
+    <div id="job-pane" class="detail-pane"></div>
   </dialog>
 
   <div id="toast" class="toast" hidden></div>

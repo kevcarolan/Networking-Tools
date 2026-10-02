@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     ldap_admin_group: str = ""  # DN of the group allowed to make changes
     ldap_viewer_group: str = ""  # DN of the read-only group; empty = any domain user
     ldap_ca_file: str = ""  # CA bundle for validating the DC certificate
+    ldap_upgrader_group: str = ""  # DN of the group allowed to run upgrades; empty = admins
 
     # Local break-glass admin (works even if AD is down). Leave the hash empty to disable.
     local_admin_user: str = "admin"
@@ -58,6 +59,31 @@ class Settings(BaseSettings):
     firmware_check_minutes: int = 1440  # how often each device's version is re-read
     firmware_workers: int = 5
     firmware_max_upload_mb: int = 4096
+
+    # Upgrade jobs
+    upgrade_workers: int = 2
+    upgrade_cpu_warn: int = 80  # % CPU (5 min) above which a pre-check warns
+    upgrade_mem_warn: int = 85  # % memory used above which a pre-check warns
+    upgrade_flash_factor: float = 1.1  # free flash needed = image size x factor
+    upgrade_flash_factor_install: float = 2.2  # IOS-XE install mode expands the image
+    upgrade_backup_max_age_hours: int = 24
+    # Platforms (or platform:path) allowed to make real changes, comma-separated,
+    # e.g. "cisco_ios" or "cisco_ios,cisco_ftd:fdm_ha". Empty = every job is a dry run.
+    upgrade_live_platforms: str = ""
+    upgrade_abort_timer_min: int = 120  # IOS-XE: reverts by itself unless committed in time
+    upgrade_reload_timeout_min: int = 30  # how long to wait for a device to come back
+    upgrade_settle_seconds: int = 120  # wait after SSH is back before the post-checks
+    upgrade_copy_timeout_min: int = 60  # image copy and install commands
+    upgrade_poll_seconds: int = 15  # how often to test whether a reloading device is back
+    upgrade_worker_poll_seconds: float = 2.0  # how often the worker looks for new requests
+    upgrade_require_worker: bool = True  # refuse job actions while the worker isn't running
+
+    def live_allowed(self, platform: str, path: str) -> bool:
+        allowed = {p.strip() for p in self.upgrade_live_platforms.split(",") if p.strip()}
+        return platform in allowed or f"{platform}:{path}" in allowed
+
+    # Circuit list tool
+    circuits_max_upload_mb: int = 25
 
 
     @property

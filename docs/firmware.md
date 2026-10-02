@@ -57,6 +57,12 @@ upload or delete images.
 
 ## Phase 2: staging and pre-checks (no reloads)
 
+> **Status (October 2026):** phases 2 and 3 are built: staging, the worker, and live
+> procedures for every platform with a choice of path, including HA pairs. They follow the
+> agreed changes: one device or pair per job; no waves or approval step; AW+ is pushed over
+> SCP, not pulled. How to use them: [upgrades.md](upgrades.md); lab sign-off:
+> [upgrade-lab-tests.md](upgrade-lab-tests.md). The text below is the original plan.
+
 * An upgrade credential per device (privileged account, separate from the backup account).
 * **Pre-check job** (a dry run): reachability, login, current version, model matches the
   image, enough free flash, no unsaved config (`show archive config differences` / startup vs

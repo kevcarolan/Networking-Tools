@@ -5,7 +5,7 @@ import socket
 from dataclasses import dataclass
 
 from app.core.crypto import CredentialCipher
-from app.core.models import Device
+from app.core.models import Credential, Device
 from app.core.platforms import PLATFORMS
 
 # Error types shown in the GUI
@@ -32,11 +32,12 @@ class Target:
 
 
 def target_for(device: Device, cipher: CredentialCipher, ssh_timeout: int = 30,
-               command_timeout: int = 180) -> Target:
-    """Build a Target from a device and its credential profile.
+               command_timeout: int = 180, credential: Credential | None = None) -> Target:
+    """Build a Target from a device and its credential profile (or the given
+    credential, e.g. the device's upgrade credential).
 
-    Raises DeviceError(SETUP) when the device has no usable credential."""
-    cred = device.credential
+    Raises DeviceError(SETUP) when there is no usable credential."""
+    cred = credential if credential is not None else device.credential
     if cred is None:
         raise DeviceError(SETUP, "No credential profile assigned to this device")
     try:

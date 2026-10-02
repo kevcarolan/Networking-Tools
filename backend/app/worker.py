@@ -14,6 +14,7 @@ import os
 import signal
 import socket
 import threading
+import time
 from concurrent.futures import Future, ThreadPoolExecutor
 
 from sqlalchemy import select, update
@@ -133,12 +134,12 @@ class UpgradeWorker:
 
     def run_forever(self) -> None:
         self.start()
-        beat_every, last_beat = 5.0, 0.0
+        beat_every, last_beat = 5.0, float("-inf")
         while not self._stop.is_set():
             try:
                 self.process_once()
                 self.service.watch_abort_timers()
-                now = self.service.monotonic()
+                now = time.monotonic()  # wall-clock based, never the engine's (test) clock
                 if now - last_beat >= beat_every:
                     self.heartbeat()
                     last_beat = now

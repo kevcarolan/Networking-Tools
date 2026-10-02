@@ -57,9 +57,11 @@ upload or delete images.
 
 ## Phase 2: staging and pre-checks (no reloads)
 
-> **Status (PR 2):** upgrade credential per device, pre-check job, before/after snapshot,
-> overrides, reports and history are built, with Start as a dry run. How to use them:
-> [upgrades.md](upgrades.md). Staging (below) is PR 3.
+> **Status (October 2026):** phases 2 and 3 are built: staging, the worker, and live
+> procedures for every platform with a choice of path, including HA pairs. They follow the
+> agreed changes: one device or pair per job; no waves or approval step; AW+ is pushed over
+> SCP, not pulled. How to use them: [upgrades.md](upgrades.md); lab sign-off:
+> [upgrade-lab-tests.md](upgrade-lab-tests.md). The text below is the original plan.
 
 * An upgrade credential per device (privileged account, separate from the backup account).
 * **Pre-check job** (a dry run): reachability, login, current version, model matches the

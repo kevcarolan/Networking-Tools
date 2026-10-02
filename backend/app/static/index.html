@@ -136,9 +136,10 @@
         </div>
 
         <div id="fw-jobs" class="fw-pane" hidden>
+          <div id="worker-banner"></div>
           <div id="job-summary" class="tiles"></div>
           <div class="toolbar">
-            <p class="muted">One device per job. Pre-checks must pass (or be overridden with a reason) before Start. <b>This release runs every job as a dry run: nothing is changed on the device.</b></p>
+            <p class="muted">One device (or HA pair) per job. Pre-checks must pass, or be overridden with a reason, before Start. A live upgrade only starts inside its change window; a dry run rehearses the same steps without changing anything.</p>
             <span class="spacer"></span>
             <select id="job-filter">
               <option value="open">Open jobs</option>
@@ -359,17 +360,51 @@
       <label>Device <select name="device_id" required></select></label>
       <p id="job-new-device" class="muted"></p>
       <label>Firmware image <select name="image_id" required></select></label>
+      <label>Upgrade path <select name="path" required></select></label>
+      <p id="job-new-path" class="muted"></p>
+      <fieldset class="mode">
+        <legend>Mode</legend>
+        <label class="inline"><input type="radio" name="mode" value="dry" checked> <span>Dry run: check and rehearse, change nothing</span></label>
+        <label class="inline"><input type="radio" name="mode" value="live"> <span><b>Live upgrade</b>: copies, reloads and commits</span></label>
+        <small id="job-new-live"></small>
+      </fieldset>
       <div class="grid2">
         <label>Change reference <input name="change_ref" maxlength="100" placeholder="CHG0012345"></label>
-        <label>Upgrade account <select name="upgrade_credential_id"></select></label>
+        <span></span>
         <label>Window start <input name="planned_start" type="datetime-local"></label>
         <label>Window end <input name="planned_end" type="datetime-local"></label>
       </div>
       <label>Notes <textarea name="notes" rows="2" maxlength="5000"></textarea></label>
       <p class="error" hidden></p>
       <div class="dialog-actions">
+        <button type="button" id="job-new-settings" class="ghost" data-admin>Upgrade settings…</button>
+        <span class="spacer"></span>
         <button value="cancel" formnovalidate class="ghost">Cancel</button>
         <button value="save" class="primary">Create job</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Per-device upgrade settings (admin) -->
+  <dialog id="ups-dialog">
+    <form id="ups-form" method="dialog" class="form">
+      <h2 id="ups-title">Upgrade settings</h2>
+      <label>Upgrade account <select name="upgrade_credential_id"></select>
+        <small>A privileged account used only for upgrades (never the backup account).</small></label>
+      <label>Usual upgrade path <select name="default_path"></select></label>
+      <label>Pair / peer device <select name="peer_device_id"></select>
+        <small>The other unit of an HA, failover or vPC pair. Both units are set to point at each other. ASA: the active and standby addresses.</small></label>
+      <label>File system <input name="file_system" maxlength="30" placeholder="default (flash:, bootflash:, disk0:/)"></label>
+      <fieldset id="ups-fdm">
+        <legend>FDM certificate (FTD)</legend>
+        <label>Trusted SHA-256 fingerprint <input name="fdm_fingerprint" maxlength="100" placeholder="not trusted yet"></label>
+        <button type="button" id="ups-fetch" class="small">Fetch from the device</button>
+        <small>Compare the fingerprint with the one FDM shows (Device › System Settings › Management Access / the browser's certificate view) before saving.</small>
+      </fieldset>
+      <p class="error" hidden></p>
+      <div class="dialog-actions">
+        <button value="cancel" formnovalidate class="ghost">Cancel</button>
+        <button value="save" class="primary">Save</button>
       </div>
     </form>
   </dialog>
@@ -384,6 +419,7 @@
     <div id="job-info" class="job-info"></div>
     <div id="job-actions" class="dialog-actions job-actions"></div>
     <div class="tabs" id="job-tabs">
+      <button data-tab="procedure">Procedure</button>
       <button data-tab="checks" class="active">Checks</button>
       <button data-tab="circuits">Affected circuits</button>
       <button data-tab="log">Log</button>

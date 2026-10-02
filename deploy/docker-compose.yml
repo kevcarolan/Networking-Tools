@@ -14,6 +14,22 @@ services:
     restart: unless-stopped
     expose: ["8000"]         # only reachable through Caddy
 
+  # Carries out firmware upgrade jobs; shares the data volume with the web app.
+  netops-worker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: ["python", "-m", "app.worker"]
+    env_file: ../.env
+    environment:
+      NETOPS_DATA_DIR: /data
+      NETOPS_CREDENTIAL_KEY_FILE: /secrets/credential.key
+    volumes:
+      - netops-data:/data
+      - ./secrets:/secrets
+    restart: unless-stopped
+    stop_grace_period: 45m   # let a running step finish; jobs pause before the next one
+
   caddy:
     image: caddy:2
     ports: ["80:80", "443:443"]

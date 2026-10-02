@@ -531,3 +531,17 @@ def test_worker_shutdown_pauses_before_the_next_step(lab, xe):
     lab.worker.heartbeat()
     w = lab.c.get("/api/firmware/worker").json()
     assert w["alive"] and w["pid"]
+
+
+def test_cli_upgrades_running(lab, xe, capsys, monkeypatch):
+    from app import cli
+
+    sim, dev, img = xe
+    job = lab.job(dev, img)
+    monkeypatch.setattr("app.core.config.get_settings", lambda: lab.settings)
+    monkeypatch.setattr("app.core.db.init_engine", lambda url: None)
+    assert cli.main(["upgrades-running"]) == 0
+    with session_scope() as db:
+        db.get(UpgradeJob, job["id"]).status = "running"
+    assert cli.main(["upgrades-running"]) == 3
+    assert "LIVE" in capsys.readouterr().out

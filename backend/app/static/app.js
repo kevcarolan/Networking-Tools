@@ -529,7 +529,8 @@ function fwRow(r) {
     f.last_success ? h("span", { class: "errtext" }, `Last good: ${fmtAgo(f.last_success)}`) : null];
   else checked = h("span", { title: fmtTime(f.last_success) }, fmtAgo(f.last_success));
   const actions = isAdmin()
-    ? [h("button", { class: "small", disabled: f.busy, onclick: () => fwCheckNow(d) }, "Check now")] : [];
+    ? [h("button", { class: "small", disabled: f.busy, onclick: () => fwCheckNow(d) }, "Check now"),
+      h("button", { class: "small", onclick: () => openUpgradeSettings(d, loadFwVersions) }, "Upgrade settings")] : [];
   const mode = [f.boot_mode, f.ha_role].filter(Boolean).join(" · ") || "—";
   return h("tr", { class: d.enabled ? "" : "disabled" },
     h("td", {}, h("span", { class: `dot ${r.compliance}`, title: COMPLIANCE_LABEL[r.compliance] })),
@@ -985,12 +986,22 @@ async function loadDeviceCircuits() {
 
 const JOB_STATUS = {
   planned: "Planned", pre_checking: "Pre-checking…", blocked: "Blocked", ready: "Ready to start",
-  running: "Running…", post_checking: "Post-checking…", completed: "Completed",
-  completed_overrides: "Completed with overrides", failed: "Failed post-checks", cancelled: "Cancelled",
-  rolling_back: "Rolling back…", rolled_back: "Rolled back", needs_attention: "Needs attention",
+  staging: "Staging image…", running: "Running…", post_checking: "Post-checking…", paused: "Paused",
+  completed: "Completed", completed_overrides: "Completed with overrides", failed: "Failed",
+  cancelled: "Cancelled", rolling_back: "Rolling back…", rolled_back: "Rolled back",
+  needs_attention: "Needs attention",
 };
-const JOB_OPEN = ["planned", "pre_checking", "blocked", "ready", "running", "post_checking", "failed", "rolling_back", "needs_attention"];
-const jobs = { list: [], current: null, tab: "checks", timer: null };
+const JOB_OPEN = ["planned", "pre_checking", "blocked", "ready", "staging", "running", "post_checking",
+  "paused", "failed", "rolling_back", "needs_attention"];
+const JOB_WORKING = ["pre_checking", "staging", "running", "post_checking", "rolling_back"];
+const UNIT_STATUS = { pending: "not changed yet", activated: "upgrading", checked: "upgraded, checked",
+  failed: "post-checks failed", rolled_back: "rolled back" };
+const jobs = { list: [], current: null, tab: "checks", timer: null, paths: null, worker: null };
+
+async function upgradePaths() {
+  if (!jobs.paths) jobs.paths = await api("/api/firmware/upgrade-paths");
+  return jobs.paths;
+}
 
 async function toggleRecommended(img) {
   const ref = img.recommended ? img.release_ref : (prompt(`Why is ${img.filename} recommended? (e.g. "Cisco suggested release")`, img.release_ref || "") ?? null);
@@ -1003,15 +1014,22 @@ async function toggleRecommended(img) {
   }
 }
 
+function workerBanner(w) {
+  if (!w || w.alive) return "";
+  return h("p", { class: "banner bad" }, h("b", {}, "The upgrade worker isn't running"),
+    " (service netops-worker). Jobs can be viewed, but no checks or upgrade steps can run until it is started.");
+}
+
 async function loadJobs() {
   try {
-    jobs.list = await api("/api/firmware/jobs");
+    [jobs.list, jobs.worker] = await Promise.all([api("/api/firmware/jobs"), api("/api/firmware/worker")]);
   } catch (e) {
     return toast(e.message);
   }
+  $("#worker-banner").replaceChildren(workerBanner(jobs.worker) || "");
   const count = (st) => jobs.list.filter((j) => st.includes(j.status)).length;
   $("#job-summary").replaceChildren(...[
-    ["", "Open jobs", count(JOB_OPEN)], ["success", "Ready to start", count(["ready"])],
+    ["", "Open jobs", count(JOB_OPEN)], ["success", "Ready to start", count(["ready", "paused"])],
     ["failed", "Blocked / failed", count(["blocked", "failed", "needs_attention"])],
     ["success", "Completed", count(["completed", "completed_overrides"])],
     ["never", "Rolled back / cancelled", count(["rolled_back", "cancelled"])],
@@ -1019,14 +1037,18 @@ async function loadJobs() {
   renderJobs();
 }
 
+function modeBadge(j) {
+  return j.dry_run ? h("small", { class: "sub" }, "dry run") : h("span", { class: "badge live" }, "LIVE");
+}
+
 function renderJobs() {
   const f = $("#job-filter").value;
   const rows = jobs.list.filter((j) => !f || (f === "open" ? JOB_OPEN.includes(j.status) : !JOB_OPEN.includes(j.status)));
   $("#job-table tbody").replaceChildren(...rows.map((j) => h("tr", {},
     h("td", {}, `#${j.id}`),
-    h("td", { class: "name" }, j.device.name, h("small", {}, `${j.device.platform_label} · ${j.device.site || "—"}`)),
+    h("td", { class: "name" }, j.units.map((u) => u.name).join(" + "), h("small", {}, `${j.device.platform_label} · ${j.path_label}`)),
     h("td", {}, h("code", {}, `${j.from_version || "?"} → ${j.target_version}`), h("small", { class: "sub" }, j.image.filename)),
-    h("td", {}, h("span", { class: `badge ${j.status}` }, JOB_STATUS[j.status] || j.status), j.dry_run ? h("small", { class: "sub" }, "dry run") : null),
+    h("td", {}, h("span", { class: `badge ${j.status}` }, JOB_STATUS[j.status] || j.status), " ", modeBadge(j)),
     h("td", {}, j.change_ref || "—"),
     h("td", {}, j.planned_start ? fmtTime(j.planned_start) : "—"),
     h("td", {}, fmtTime(j.created_at), h("small", { class: "sub" }, j.created_by)),
@@ -1042,39 +1064,69 @@ $("#job-new").addEventListener("click", async () => {
   form.reset();
   $(".error", form).hidden = true;
   try {
-    [fw.rows, fw.images] = await Promise.all([api("/api/firmware/devices"), api("/api/firmware/images")]);
-    state.credentials = isAdmin() ? await api("/api/credentials").catch(() => []) : [];
+    [fw.rows, fw.images] = await Promise.all([api("/api/firmware/devices"), api("/api/firmware/images"), upgradePaths()]);
   } catch (e) {
     return toast(e.message);
   }
   form.device_id.replaceChildren(h("option", { value: "" }, "— choose a device —"),
     ...fw.rows.map((r) => h("option", { value: r.device.id }, `${r.device.name} (${r.device.platform_label}, ${r.facts.version || "version unknown"})`)));
-  form.device_id.onchange = () => fillJobImages(form);
-  fillJobImages(form);
+  form.device_id.onchange = () => fillJobForm(form);
+  form.path.onchange = () => describePath(form);
+  $$("input[name=mode]", form).forEach((r) => (r.onchange = () => describePath(form)));
+  fillJobForm(form);
   $("#job-new-dialog").showModal();
 });
 
-async function fillJobImages(form) {
+$("#job-new-settings").addEventListener("click", () => {
+  const form = $("#job-new-form");
+  const row = fw.rows.find((r) => String(r.device.id) === form.device_id.value);
+  if (!row) return toast("Choose a device first");
+  openUpgradeSettings(row.device, () => fillJobForm(form));
+});
+
+function globMatch(pattern, value) {
+  return pattern === "*" || !value || new RegExp("^" + pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$", "i").test(value);
+}
+
+async function fillJobForm(form) {
   const row = fw.rows.find((r) => String(r.device.id) === form.device_id.value);
   const info = $("#job-new-device");
   form.image_id.replaceChildren();
-  form.upgrade_credential_id.replaceChildren();
+  form.path.replaceChildren();
+  $("#job-new-path").textContent = "";
   if (!row) return (info.textContent = "");
-  const matches = fw.images.filter((i) => i.platform === row.device.platform &&
-    (i.model_pattern === "*" || !row.facts.model || new RegExp("^" + i.model_pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$", "i").test(row.facts.model)));
+  const matches = fw.images.filter((i) => i.platform === row.device.platform && globMatch(i.model_pattern, row.facts.model));
   form.image_id.replaceChildren(...(matches.length ? matches.map((i) => h("option", { value: i.id },
     `${i.version} — ${i.filename}${i.recommended ? " (recommended)" : ""}`)) : [h("option", { value: "" }, "No image in the repository suits this device")]));
   const [settings, circ] = await Promise.all([
-    api(`/api/firmware/devices/${row.device.id}/settings`).catch(() => ({})),
+    api(`/api/firmware/devices/${row.device.id}/settings`).catch(() => ({ paths: [] })),
     api(`/api/circuits/for-device/${row.device.id}`).catch(() => ({ count: 0 }))]);
-  const creds = state.credentials.length ? state.credentials : (settings.upgrade_credential ? [{ id: settings.upgrade_credential_id, name: settings.upgrade_credential, username: "" }] : []);
-  form.upgrade_credential_id.replaceChildren(h("option", { value: "" }, "— none —"),
-    ...creds.map((c) => h("option", { value: c.id }, c.username ? `${c.name} (${c.username})` : c.name)));
-  form.upgrade_credential_id.value = settings.upgrade_credential_id ?? "";
-  form.upgrade_credential_id.disabled = !isAdmin();
+  form._settings = settings;
+  const catalogue = (jobs.paths.find((p) => p.platform === row.device.platform) || { paths: [] }).paths;
+  const preferred = settings.default_path || (row.device.platform === "cisco_ios" ? (row.facts.boot_mode === "install" ? "install" : "bundle")
+    : (settings.peer ? (catalogue.find((p) => p.units === 2) || {}).id : catalogue[0] && catalogue[0].id));
+  form.path.replaceChildren(...catalogue.map((p) => h("option", { value: p.id, disabled: p.units === 2 && !settings.peer },
+    p.label + (p.units === 2 ? (settings.peer ? ` — with ${settings.peer}` : " — needs a peer (Upgrade settings)") : ""))));
+  if (preferred && catalogue.some((p) => p.id === preferred && !(p.units === 2 && !settings.peer))) form.path.value = preferred;
   info.textContent = `Now running ${row.facts.version || "unknown"} on ${row.facts.model || "unknown model"}` +
     ` · ${circ.count || 0} affected circuit(s) in the circuit list` +
-    (settings.upgrade_credential ? "" : " · no upgrade account set yet");
+    (settings.upgrade_credential ? ` · upgrade account ${settings.upgrade_credential}` : " · no upgrade account set yet (an admin sets it in Upgrade settings)");
+  describePath(form);
+}
+
+function describePath(form) {
+  const row = fw.rows.find((r) => String(r.device.id) === form.device_id.value);
+  if (!row) return;
+  const p = ((jobs.paths.find((x) => x.platform === row.device.platform) || { paths: [] }).paths).find((x) => x.id === form.path.value);
+  $("#job-new-path").textContent = p ? p.description : "";
+  const liveRadio = $("input[name=mode][value=live]", form);
+  liveRadio.disabled = !(p && p.live_allowed);
+  if (liveRadio.disabled && liveRadio.checked) $("input[name=mode][value=dry]", form).checked = true;
+  const live = liveRadio.checked;
+  form.planned_start.required = form.planned_end.required = live;
+  $("#job-new-live").textContent = !p ? "" : !p.live_allowed
+    ? "Live upgrades are switched off for this platform (NETOPS_UPGRADE_LIVE_PLATFORMS). Dry run only."
+    : live ? "A live upgrade needs a change window, and only starts inside it." : "";
 }
 
 $("#job-new-form").addEventListener("submit", async (ev) => {
@@ -1083,13 +1135,9 @@ $("#job-new-form").addEventListener("submit", async (ev) => {
   const form = ev.target, err = $(".error", form);
   const toIso = (v) => (v ? new Date(v).toISOString().slice(0, 19) : null);
   try {
-    const deviceId = Number(form.device_id.value);
-    if (isAdmin()) {
-      await api(`/api/firmware/devices/${deviceId}/settings`, { method: "PUT",
-        body: { upgrade_credential_id: form.upgrade_credential_id.value ? Number(form.upgrade_credential_id.value) : null } });
-    }
     const job = await api("/api/firmware/jobs", { method: "POST", body: {
-      device_id: deviceId, image_id: Number(form.image_id.value), change_ref: form.change_ref.value,
+      device_id: Number(form.device_id.value), image_id: Number(form.image_id.value), path: form.path.value,
+      live: $("input[name=mode][value=live]", form).checked, change_ref: form.change_ref.value,
       notes: form.notes.value, planned_start: toIso(form.planned_start.value), planned_end: toIso(form.planned_end.value) } });
     $("#job-new-dialog").close();
     loadJobs();
@@ -1100,11 +1148,68 @@ $("#job-new-form").addEventListener("submit", async (ev) => {
   }
 });
 
+// Upgrade settings (admin)
+
+async function openUpgradeSettings(device, after) {
+  const form = $("#ups-form");
+  form.reset();
+  $(".error", form).hidden = true;
+  let settings, creds, devices;
+  try {
+    [settings, creds, devices] = await Promise.all([api(`/api/firmware/devices/${device.id}/settings`),
+      api("/api/credentials"), api("/api/devices")]);
+  } catch (e) {
+    return toast(e.message);
+  }
+  $("#ups-title").textContent = `Upgrade settings — ${device.name}`;
+  form.upgrade_credential_id.replaceChildren(h("option", { value: "" }, "— none —"),
+    ...creds.map((c) => h("option", { value: c.id }, `${c.name} (${c.username})`)));
+  form.upgrade_credential_id.value = settings.upgrade_credential_id ?? "";
+  form.default_path.replaceChildren(h("option", { value: "" }, "— decide per job —"),
+    ...settings.paths.map((p) => h("option", { value: p.id }, p.label)));
+  form.default_path.value = settings.default_path || "";
+  const peers = devices.filter((d) => d.platform === device.platform && d.id !== device.id);
+  form.peer_device_id.replaceChildren(h("option", { value: "" }, "— none (standalone) —"),
+    ...peers.map((d) => h("option", { value: d.id }, `${d.name} (${d.address})`)));
+  form.peer_device_id.value = settings.peer_device_id ?? "";
+  form.file_system.value = settings.file_system || "";
+  form.fdm_fingerprint.value = settings.fdm_fingerprint || "";
+  $("#ups-fdm").hidden = device.platform !== "cisco_ftd";
+  $("#ups-fetch").onclick = async () => {
+    try {
+      const r = await api(`/api/firmware/devices/${device.id}/fdm-fingerprint`, { method: "POST" });
+      if (confirm(`${device.name} presents this certificate:\n\n${r.fingerprint}\n\nDoes it match the fingerprint shown in FDM? Only then trust it.`)) {
+        form.fdm_fingerprint.value = r.fingerprint;
+      }
+    } catch (e) {
+      toast(e.message);
+    }
+  };
+  form.onsubmit = async (ev) => {
+    if (ev.submitter && ev.submitter.value === "cancel") return;
+    ev.preventDefault();
+    const num = (v) => (v ? Number(v) : null);
+    try {
+      await api(`/api/firmware/devices/${device.id}/settings`, { method: "PUT", body: {
+        upgrade_credential_id: num(form.upgrade_credential_id.value), default_path: form.default_path.value,
+        peer_device_id: num(form.peer_device_id.value), file_system: form.file_system.value.trim(),
+        fdm_fingerprint: form.fdm_fingerprint.value.trim() } });
+      $("#ups-dialog").close();
+      toast("Upgrade settings saved");
+      if (after) after();
+    } catch (e) {
+      $(".error", form).textContent = e.message;
+      $(".error", form).hidden = false;
+    }
+  };
+  $("#ups-dialog").showModal();
+}
+
 // Job window
 
 async function openJob(id) {
-  jobs.tab = "checks";
-  $$("#job-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === "checks"));
+  jobs.tab = "procedure";
+  $$("#job-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === jobs.tab));
   $("#job-dialog").showModal();
   await refreshJob(id);
 }
@@ -1122,45 +1227,67 @@ $$("#job-tabs button").forEach((b) => b.addEventListener("click", () => {
 async function refreshJob(id) {
   clearTimeout(jobs.timer);
   try {
-    jobs.current = await api(`/api/firmware/jobs/${id}`);
+    [jobs.current, jobs.worker] = await Promise.all([api(`/api/firmware/jobs/${id}`), api("/api/firmware/worker")]);
   } catch (e) {
     return toast(e.message);
   }
   renderJob();
   const j = jobs.current;
-  if ((j.busy || ["pre_checking", "running", "post_checking", "rolling_back"].includes(j.status)) && $("#job-dialog").open) {
-    jobs.timer = setTimeout(() => refreshJob(id), 2000);
+  if ($("#job-dialog").open && (j.busy || JOB_WORKING.includes(j.status) || j.pending_commit)) {
+    jobs.timer = setTimeout(() => refreshJob(id), j.busy || JOB_WORKING.includes(j.status) ? 2000 : 15000);
   }
+}
+
+function minutesUntil(t) {
+  return Math.round((new Date(t + (t.endsWith("Z") ? "" : "Z")) - Date.now()) / 60000);
 }
 
 function renderJob() {
   const j = jobs.current;
-  $("#job-title").textContent = `Upgrade job #${j.id} — ${j.device.name}`;
-  const working = j.busy || ["pre_checking", "running", "post_checking", "rolling_back"].includes(j.status);
+  $("#job-title").textContent = `Upgrade job #${j.id} — ${j.units.map((u) => u.name).join(" + ")}`;
+  const working = (j.busy && !j.queued) || JOB_WORKING.includes(j.status);
   const cls = ["blocked", "failed", "needs_attention"].includes(j.status) ? "bad"
     : ["ready", "completed"].includes(j.status) ? "good" : "";
+  const hint = {
+    blocked: " — fix the device and Re-check, or override each blocker with a reason.",
+    failed: j.mode === "rollback" ? " — the roll back's post-checks failed: check the device, then Re-run post-checks or override with a note."
+      : " — investigate, then Re-run post-checks, override with a note, or Roll back.",
+    paused: " — Continue carries on from the next step.",
+    needs_attention: " — the procedure stopped in an unclear state: check the device, then re-run the post-checks or roll back.",
+  }[j.status] || "";
   $("#job-banner").replaceChildren(
-    h("p", { class: `banner ${cls}` }, h("b", {}, JOB_STATUS[j.status] || j.status), working ? " — working, this updates by itself" : "",
-      j.status === "blocked" ? " — fix the device and Re-check, or override each blocker with a reason." : "",
-      j.status === "failed" ? " — investigate, then Re-run post-checks, override with a note, or Roll back." : "",
-      j.status === "needs_attention" ? " — the service restarted during a step: check the device, then re-run the checks." : ""),
+    workerBanner(jobs.worker) || "",
+    h("p", { class: `banner ${cls}` }, h("b", {}, JOB_STATUS[j.status] || j.status),
+      j.queued ? ` — ${j.queued} queued for the upgrade worker…` : working ? [" — ", h("span", { class: "spin" }), " ", j.current_step || "working", " (updates by itself)"] : "",
+      j.stop_requested && working ? " — will stop after this step" : "", j.busy ? "" : hint),
     unresolvedList(j),
-    j.dry_run ? h("p", { class: "banner" }, "DRY RUN: checks really read the device; the upgrade steps are only recorded, nothing is changed.") : "");
+    j.pending_commit && j.abort_deadline ? h("p", { class: "banner bad" }, h("b", {}, "Not committed: "),
+      `the device goes back to ${j.from_version} by itself at ${fmtTime(j.abort_deadline)} (in about ${minutesUntil(j.abort_deadline)} min) unless the new version is committed (Continue after the post-checks pass or are overridden).`) : "",
+    j.dry_run ? h("p", { class: "banner" }, "DRY RUN: checks really read the device; anything that would change it is only recorded.")
+      : h("p", { class: "banner bad" }, h("b", {}, "LIVE upgrade: "), `copies, reloads and commits for real, only inside the change window (${j.in_window ? "now open" : "not open now"}).`));
   const item = (label, value, sub) => h("div", {}, h("small", {}, label), value, sub ? h("small", {}, sub) : null);
   $("#job-info").replaceChildren(
     item("Upgrade", h("code", {}, `${j.from_version || "?"} → ${j.target_version}`), `${j.image.vendor} · ${j.image.filename}`),
-    item("Device", `${j.device.name} (${j.device.address})`, `${j.device.platform_label} · site ${j.device.site || "—"}`),
-    item("Upgrade account", j.upgrade_credential || "— not set —"),
+    item("Path", j.path_label, `${j.device.platform_label} · site ${j.device.site || "—"}`),
     item("Change", j.change_ref || "—", j.planned_start ? `${fmtTime(j.planned_start)} – ${fmtTime(j.planned_end)}` : "no window set"),
     item("Created", fmtTime(j.created_at), j.created_by),
-    item("Started", j.started_at ? fmtTime(j.started_at) : "—", j.started_by || ""));
+    item("Started", j.started_at ? fmtTime(j.started_at) : "—", j.started_by || ""),
+    h("div", { class: "units" }, j.units.map((u) => h("div", { class: "unit" },
+      h("b", {}, u.name), h("small", {}, `${u.address}${u.role ? " · " + u.role : ""}`),
+      h("small", {}, `was ${u.from_version || "?"} · ${j.dry_run && u.status === "checked" ? "rehearsed (dry run)" : UNIT_STATUS[u.status] || u.status}${u.staged ? " · image staged" : ""}`),
+      h("small", {}, `account: ${u.upgrade_credential || "— not set —"}`)))));
   const can = (a) => j.allowed.includes(a) && canUpgrade();
   const act = (label, action, cls = "", confirmText = null) => h("button", { class: cls, onclick: () => jobAction(action, confirmText) }, label);
+  const live = !j.dry_run;
   $("#job-actions").replaceChildren(
     can("precheck") ? act(j.pre_run ? "Re-check" : "Run pre-checks", "precheck", j.status === "planned" ? "primary" : "") : "",
-    can("start") ? act("Start (dry run)", "start", "primary", `Start the upgrade of ${j.device.name} to ${j.target_version}?\n\nPre-checks run again first. In this release it is a dry run: nothing is changed on the device.`) : "",
-    can("postcheck") ? act("Re-run post-checks", "postcheck", "primary") : "",
-    can("rollback") ? act("Roll back", "rollback", "danger", `Roll ${j.device.name} back to ${j.from_version}? (dry run)`) : "",
+    can("stage") ? act("Stage image", "stage", "", `Copy ${j.image.filename} to ${j.units.map((u) => u.name).join(" and ")} and check its MD5 there?\n\nNothing is reloaded.`) : "",
+    can("start") ? act(live ? "Start LIVE upgrade" : "Start (dry run)", "start", live ? "danger" : "primary",
+      live ? null : `Start the dry run for ${j.device.name}?\n\nPre-checks run again first; nothing is changed on the device.`) : "",
+    can("continue") ? act("Continue", "continue", "primary") : "",
+    can("postcheck") ? act("Re-run post-checks", "postcheck") : "",
+    can("rollback") ? act("Roll back", "rollback", "danger", live ? null : `Roll ${j.device.name} back to ${j.from_version}? (dry run)`) : "",
+    can("stop") ? h("button", { class: "ghost", onclick: stopJob }, "Stop after this step") : "",
     can("cancel") ? h("button", { class: "ghost", onclick: cancelJob }, "Cancel job") : "",
     h("span", { class: "spacer" }),
     h("a", { class: "button", href: `/api/firmware/jobs/${j.id}/report.html`, target: "_blank", rel: "noopener" }, "Open report"),
@@ -1170,41 +1297,53 @@ function renderJob() {
 
 // Failed blockers without an override, named at the top of the job window.
 function unresolvedList(j) {
-  const phase = ["failed", "needs_attention"].includes(j.status) && j.checks.post.length ? "post" : "pre";
   if (!["blocked", "failed", "needs_attention"].includes(j.status)) return "";
-  const open = j.checks[phase].filter((c) => c.severity === "blocker" && ["fail", "error"].includes(c.status) && !c.overridden_by);
+  const open = ["post", "stage", "pre"].map((ph) => j.checks[ph].filter((c) => c.severity === "blocker" && ["fail", "error"].includes(c.status) && !c.overridden_by))
+    .find((list) => list.length && j.status !== "blocked") || j.checks.pre.filter((c) => c.severity === "blocker" && ["fail", "error"].includes(c.status) && !c.overridden_by);
   if (!open.length) return "";
   return h("ul", { class: "banner bad unresolved" }, open.map((c) =>
-    h("li", {}, h("b", {}, c.label), ": ", c.value || "", c.detail ? ` — ${c.detail.split("\n")[0]}` : "")));
+    h("li", {}, h("b", {}, (j.units.length > 1 && c.device ? `${c.device}: ` : "") + c.label), ": ", c.value || "", c.detail ? ` — ${c.detail.split("\n")[0]}` : "")));
 }
 
 function checksTable(rows, phase) {
   const j = jobs.current;
-  if (!rows.length) return h("p", { class: "muted" }, phase === "pre" ? "Pre-checks haven't run yet." : "Post-checks run after Start.");
+  if (!rows.length) return h("p", { class: "muted" }, { pre: "Pre-checks haven't run yet.", stage: "The image hasn't been staged yet.", post: "Post-checks run after each unit is upgraded." }[phase]);
   const canOverride = canUpgrade() && !j.busy &&
-    ((phase === "pre" && ["blocked", "ready"].includes(j.status)) || (phase === "post" && ["failed", "completed_overrides"].includes(j.status)));
+    ((phase === "pre" && ["blocked", "ready"].includes(j.status)) || (phase === "post" && ["failed", "paused", "completed_overrides", "needs_attention"].includes(j.status)));
+  const multi = j.units.length > 1;
   return h("table", {},
-    h("thead", {}, h("tr", {}, ["Check", "Result", "Value", "Detail", ""].map((t) => h("th", {}, t)))),
+    h("thead", {}, h("tr", {}, [multi ? "Unit" : null, "Check", "Result", "Value", "Detail", ""].filter((t) => t !== null).map((t) => h("th", {}, t)))),
     h("tbody", {}, rows.map((c) => {
       const failed = ["fail", "error"].includes(c.status);
       const sev = c.severity === "blocker" ? "" : c.severity === "warning" ? " (warning)" : " (info)";
       return h("tr", {},
+        multi ? h("td", {}, c.device || "—") : null,
         h("td", { class: "name" }, c.label, h("small", {}, c.severity)),
         h("td", {}, h("span", { class: `badge ${failed && c.severity !== "blocker" ? "warnsev" : c.status}` },
           (failed && c.overridden_by ? "overridden" : c.status) + (failed ? sev : ""))),
         h("td", {}, c.value || "—"),
         h("td", {}, c.detail ? h("pre", { class: "detail" }, c.detail) : "",
           c.overridden_by ? h("div", { class: "override" }, `Override by ${c.overridden_by}: ${c.override_reason}`) : null),
-        h("td", { class: "actions" }, canOverride && failed && c.severity === "blocker" && !c.overridden_by
+        h("td", { class: "actions" }, canOverride && failed && c.severity === "blocker" && !c.overridden_by && c.overridable
           ? h("button", { class: "small", onclick: () => overrideCheck(c) }, "Override…") : ""));
     })));
 }
 
 function renderJobPane() {
   const j = jobs.current, pane = $("#job-pane");
-  if (jobs.tab === "checks") {
+  if (jobs.tab === "procedure") {
+    if (!j.steps.length) return pane.replaceChildren(h("p", { class: "muted" }, "The procedure is worked out from the pre-checks when the job starts."));
+    const working = (j.busy && !j.queued) || JOB_WORKING.includes(j.status);
+    pane.replaceChildren(h("p", { class: "muted" }, j.mode === "rollback" ? "Roll back procedure" : `Upgrade procedure — ${j.path_label}`),
+      h("ol", { class: "steps" }, j.steps.map((s, i) => h("li", { class: i < j.step_index ? "done" : i === j.step_index ? (working ? "current" : "next") : "" },
+        h("span", { class: "n" }, i < j.step_index ? "" : i + 1),
+        h("span", {}, s.label, i === j.step_index && working ? [" ", h("span", { class: "spin" })] : ""),
+        h("span", {}, s.reload ? h("span", { class: "tag", title: "Takes the device down; only inside the change window" }, "reload") : "",
+          s.gate ? h("span", { class: "tag gate", title: "Failures stop the job here" }, "check") : "")))));
+  } else if (jobs.tab === "checks") {
     pane.replaceChildren(h("h3", {}, `Pre-checks${j.pre_run ? ` (run ${j.pre_run})` : ""}`), checksTable(j.checks.pre, "pre"),
-      h("h3", {}, `Post-checks${j.post_run ? ` (run ${j.post_run})` : ""}`), checksTable(j.checks.post, "post"));
+      h("h3", {}, "Image on the device"), checksTable(j.checks.stage, "stage"),
+      h("h3", {}, "Post-checks"), checksTable(j.checks.post, "post"));
   } else if (jobs.tab === "circuits") {
     const c = j.circuits.started || j.circuits.planned;
     if (!c || !c.count) return pane.replaceChildren(h("p", { class: "empty" }, "No circuits in the circuit list use this device."));
@@ -1215,24 +1354,43 @@ function renderJobPane() {
             h("td", {}, x.device_type || "—"), h("td", {}, h("code", {}, x.ip || "—")),
             h("td", {}, [x.floor, x.room].filter(Boolean).join(" / ") || "—"), h("td", {}, x.drawing_number || "—"))))))));
   } else {
-    pane.replaceChildren(h("table", {}, h("thead", {}, h("tr", {}, ["Time", "Step", "Event"].map((t) => h("th", {}, t)))),
+    pane.replaceChildren(h("table", {}, h("thead", {}, h("tr", {}, ["Time", "Unit", "Step", "Event"].map((t) => h("th", {}, t)))),
       h("tbody", {}, [...j.events].reverse().map((e) => h("tr", { class: `evt-${e.level}` },
-        h("td", {}, fmtTime(e.time)), h("td", {}, e.step), h("td", {}, e.message))))));
+        h("td", {}, fmtTime(e.time)), h("td", {}, e.device || ""), h("td", {}, e.step), h("td", {}, h("pre", { class: "detail" }, e.message)))))));
   }
 }
 
 async function jobAction(action, confirmText) {
-  if (confirmText && !confirm(confirmText)) return;
+  const j = jobs.current;
+  let body;
+  if (!j.dry_run && ["start", "continue", "rollback"].includes(action)) {
+    const words = { start: "start the LIVE upgrade", continue: "continue the LIVE upgrade", rollback: "roll back for real" }[action];
+    const typed = prompt(`To ${words} of ${j.units.map((u) => u.name).join(" and ")} to ${action === "rollback" ? j.from_version : j.target_version}, type the device name (${j.device.name}):`);
+    if (typed === null) return;
+    body = { confirm: typed };
+  } else if (confirmText && !confirm(confirmText)) {
+    return;
+  }
   try {
-    await api(`/api/firmware/jobs/${jobs.current.id}/${action}`, { method: "POST" });
-    setTimeout(() => refreshJob(jobs.current.id), 400);
+    await api(`/api/firmware/jobs/${j.id}/${action}`, { method: "POST", body });
+    setTimeout(() => refreshJob(j.id), 300);
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function stopJob() {
+  if (!confirm("Stop after the step that is running now? The job pauses and Continue carries on later. A step that is already running (e.g. a reload) is never interrupted.")) return;
+  try {
+    jobs.current = await api(`/api/firmware/jobs/${jobs.current.id}/stop`, { method: "POST" });
+    renderJob();
   } catch (e) {
     toast(e.message);
   }
 }
 
 async function overrideCheck(c) {
-  const reason = prompt(`Override "${c.label}"\n\n${c.detail || c.value}\n\nWhy is it safe to continue? (at least 10 characters; this goes in the job record)`);
+  const reason = prompt(`Override "${c.label}"${c.device ? ` on ${c.device}` : ""}\n\n${c.detail || c.value}\n\nWhy is it safe to continue? (at least 10 characters; this goes in the job record)`);
   if (reason === null) return;
   try {
     jobs.current = await api(`/api/firmware/jobs/${jobs.current.id}/checks/${c.id}/override`, { method: "POST", body: { reason } });
@@ -1243,7 +1401,9 @@ async function overrideCheck(c) {
 }
 
 async function cancelJob() {
-  const reason = prompt("Why is this job being cancelled? (at least 10 characters)");
+  const changed = jobs.current.units.filter((u) => ["activated", "checked", "failed"].includes(u.status));
+  const reason = prompt((changed.length ? `Warning: ${changed.map((u) => u.name).join(", ")} already changed. Consider Roll back instead.\n\n` : "") +
+    "Why is this job being cancelled? (at least 10 characters)");
   if (reason === null) return;
   try {
     jobs.current = await api(`/api/firmware/jobs/${jobs.current.id}/cancel`, { method: "POST", body: { reason } });
@@ -1264,8 +1424,8 @@ async function loadDeviceUpgrades() {
     pane.replaceChildren(h("table", {},
       h("thead", {}, h("tr", {}, ["#", "Upgrade", "Status", "Change", "Started", ""].map((t) => h("th", {}, t)))),
       h("tbody", {}, list.map((j) => h("tr", {},
-        h("td", {}, `#${j.id}`), h("td", {}, h("code", {}, `${j.from_version || "?"} → ${j.target_version}`)),
-        h("td", {}, h("span", { class: `badge ${j.status}` }, JOB_STATUS[j.status] || j.status)),
+        h("td", {}, `#${j.id}`), h("td", {}, h("code", {}, `${j.from_version || "?"} → ${j.target_version}`), h("small", { class: "sub" }, j.path_label)),
+        h("td", {}, h("span", { class: `badge ${j.status}` }, JOB_STATUS[j.status] || j.status), " ", modeBadge(j)),
         h("td", {}, j.change_ref || "—"), h("td", {}, j.started_at ? fmtTime(j.started_at) : "—"),
         h("td", { class: "actions" },
           h("a", { class: "button small", href: `/api/firmware/jobs/${j.id}/report.html`, target: "_blank", rel: "noopener" }, "Report"),

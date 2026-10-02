@@ -4,8 +4,8 @@ The single place to see where NetOps Tools is and what's next. Update it at the 
 every working session. The details of each item are in [design.md](design.md) and
 [firmware.md](firmware.md).
 
-**Now:** Upgrade programme PR 2 (upgrade jobs, pre-checks, reports; Start is a dry run). Try it on the test VM against a lab switch ([upgrades.md](upgrades.md)).
-**Next:** PR 3 (upgrade worker process, image copy and on-device MD5). In parallel: check the parsers on real devices (`sudo netops-cli firmware-check <device> --raw`) and build the production server.
+**Now:** The whole upgrade tool is built (worker, staging, live procedures for every platform and path) and is in PR #4, unmerged. Lab testing on the test VM, platform by platform: [upgrade-lab-tests.md](upgrade-lab-tests.md). We iterate on the branch from the results, then merge.
+**Next:** After lab sign-off: merge, build the production server, enable live upgrades one platform at a time (`NETOPS_UPGRADE_LIVE_PLATFORMS`).
 
 ## Roadmap
 
@@ -41,16 +41,16 @@ every working session. The details of each item are in [design.md](design.md) an
 - [ ] **Phase 1 sign-off:** run `firmware-check --raw` on one device per platform and model; fix any parser that is wrong
 - [x] **Phase 2:** separate upgrade credential per device (PR 2)
 - [x] **Phase 2:** pre-check job (dry run): reachability, model/image match, flash space, unsaved config, HA health (PR 2)
-- [ ] **Phase 2:** stage job: SCP push (Cisco) / HTTP pull (AW+), on-device checksum check
+- [x] **Phase 2:** stage job: SCP push (all CLI platforms, incl. AW+), on-device checksum check (MD5; size on AW+)
 - [x] **Phase 2:** capture "before" state: interfaces, neighbours, port-channels, MAC count, stack (PR 2; routing still to do)
-- [ ] **Phase 3:** upgrade jobs with maintenance window, waves, failure limit, peer groups
-- [ ] **Phase 3:** automatic config backup before and after each upgrade, post-checks and diff
-- [ ] **Phase 3:** IOS-XE install mode, IOS classic and AW+ upgrades
-- [ ] **Phase 3:** NX-OS (`install all`) upgrades
-- [ ] **Phase 3:** ASA failover pair (standby first, fail over, then the other unit)
-- [ ] **Phase 3:** FTD via the FDM REST API
-- [ ] **Phase 3:** separate upgrade worker process; `NetOps-Upgraders` AD group; optional second-person approval
-- [ ] **Phase 3:** lab rehearsal of every upgrade path before production use
+- [x] **Phase 3:** upgrade jobs with a maintenance window (live steps only inside it), HA pairs as one job (peer device). Waves/failure limits dropped: one device or pair per job, by agreement
+- [x] **Phase 3:** automatic config backup before and after each upgrade, post-checks against the before snapshot
+- [x] **Phase 3:** IOS-XE install mode (commit after post-checks, auto-abort timer), IOS bundle mode and AW+ upgrades
+- [x] **Phase 3:** NX-OS (`install all`), standalone and vPC pair
+- [x] **Phase 3:** ASA standalone and failover pair (standby first, fail over, then the other unit)
+- [x] **Phase 3:** FTD via the FDM REST API (pinned certificate), standalone and FDM HA pair
+- [x] **Phase 3:** separate upgrade worker process (`netops-worker`); upgrader AD group. Second-person approval dropped by agreement
+- [ ] **Phase 3:** lab rehearsal of every upgrade path before production use ([upgrade-lab-tests.md](upgrade-lab-tests.md))
 - [ ] **Phase 4:** alerts, scheduled jobs, Cisco PSIRT advisories, end-of-life dates
 
 ### Circuits
@@ -69,9 +69,10 @@ affected circuits.
 - [x] PR 1: circuit list (above)
 - [x] PR 2: vendor repository, upgrade jobs, pre-checks, reports and history (Start is a dry run) ([upgrades.md](upgrades.md))
 - [ ] PR 2 sign-off: dry run against a real lab switch; check the new parsers (alarms, environment, install summary, show switch) on real output
-- [ ] PR 3: upgrade worker process, staging and on-device MD5 check (no reload)
-- [ ] PR 4: IOS-XE install-mode upgrade, post-checks, re-check/override, rollback
-- [ ] PR 5+: NX-OS, IOS classic, AW+, ASA pair, FTD (FDM API)
+- [x] Part 3: upgrade worker process, staging and on-device MD5 check
+- [x] Part 4: IOS-XE install-mode upgrade, post-checks, re-check/override, rollback
+- [x] Part 5: NX-OS (+ vPC), IOS bundle, AW+, ASA (+ failover pair), FTD (+ FDM HA) through a driver framework with a choice of path per job
+- [ ] Lab sign-off of every platform and path, then merge PR #4 (the user tests the full build first)
 
 ### Later tools (ideas)
 - [ ] "Where is this MAC/IP?" lookup
@@ -98,11 +99,19 @@ affected circuits.
 | 2026-10-02 | Upgraders are an AD group (`NETOPS_LDAP_UPGRADER_GROUP`) on top of admin/viewer; no approval step | The engineer runs their own change; the job enforces the checks instead |
 | 2026-10-02 | Overrides only carry forward for an identical failure | A new alarm or fault must be looked at again, not waved through |
 | 2026-10-02 | Devices with upgrade history and images used by jobs can't be deleted | The upgrade record must stay complete |
+| 2026-10-02 | Build the whole upgrade tool before testing; test and iterate on the branch, merge after sign-off | The user wants to test the complete procedure, not stages |
+| 2026-10-02 | IOS-XE: activate with an auto-abort timer, commit only after the post-checks pass or are overridden | A bad upgrade can be undone cleanly with `install abort`, and reverts by itself if nobody decides |
+| 2026-10-02 | AW+ images pushed over SCP from NetOps (not pulled by the switch) | Keeps the server outbound-only; no new inbound rule |
+| 2026-10-02 | Live upgrades enabled per platform (`NETOPS_UPGRADE_LIVE_PLATFORMS`); dry run and live share one code path | Each platform goes live only after its lab tests; a dry run rehearses the exact live steps |
+| 2026-10-02 | Upgrade procedures are drivers with selectable paths (standalone, HA/failover/vPC pair) | The user wants the tool adaptable to other network designs |
+| 2026-10-02 | FDM API trust by a pinned certificate fingerprint, confirmed by an admin | FDM uses self-signed certificates; pinning stops a man-in-the-middle without a CA |
 | 2026-09-25 | Monitoring with PRTG: HTTP health endpoint, VMware, certificate and syslog sensors; no SNMP or agent on the server | Uses the existing monitoring; nothing extra listening on the server |
 
 ## Open questions
 
-- Is the failover pair ASA or FTD (FDM HA)? The plan currently assumes ASA.
+- ~~Is the failover pair ASA or FTD?~~ FTD (FDM HA) today; both paths are built so either design works.
+- Which IOS-XE release is in use? Confirm `install activate auto-abort-timer` syntax on it in the lab.
+- FDM API version on the FTDs: confirm the endpoint paths in `fdm.py` (readiness, upgrade status fields, revert) against the API Explorer.
 - Are there any switch stacks (Cat9k StackWise, AW+ VCStack) or NX-OS vPC pairs? These affect the upgrade order.
 - Does vCenter already have a key provider for VM Encryption, or do we set up the Native Key Provider?
 - Does the PRTG version support custom request headers (HTTP Data Advanced) and syslog over TCP/TLS?
@@ -120,3 +129,4 @@ affected circuits.
 | 2026-10-01 | NETWORK-TOOLS chat | First install from the bundle on the 26.04 test VM succeeded; added step 3A (quick local test) to the installer output and guide; fixed root-shell install steps |
 | 2026-10-01 | NETWORK-TOOLS chat | NetOps running on the test VM after moving its internal port to 8710 (NetBox uses 8000 there) |
 | 2026-10-02 | NETWORK-TOOLS chat | PR 2: upgrade jobs with pre/post-checks, overrides, dry-run Start and rollback, reports and device upgrade history; upgrader role; per-device upgrade account; repository by vendor |
+| 2026-10-02 | NETWORK-TOOLS chat | Parts 3-5: upgrade worker, driver framework, staging with on-device MD5, live procedures for IOS-XE (commit after checks), IOS bundle, NX-OS (+vPC), ASA (+failover pair), FTD via FDM (+HA), AW+; network simulator and end-to-end tests; lab test plan |

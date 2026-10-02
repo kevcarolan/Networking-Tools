@@ -59,6 +59,9 @@ The channels it creates:
 | Firmware: version checks failing | > 0 / – | A device couldn't be logged in to or its output couldn't be read |
 | Data disk free (%) | < 20 / < 10 | `/var/lib/netops`: mostly firmware images |
 | Hours since server backup | > 26 / > 50 | The nightly `netops-backup` hasn't run successfully |
+| Upgrade worker up | error if 0 | The `netops-worker` service (upgrade jobs) isn't running or is stuck |
+| Upgrades running | - | Upgrade jobs mid-step right now (for the record during a change window) |
+| Upgrade jobs failed or needing attention | > 0 | A job stopped on a failure or in an unclear state: someone should look at it |
 
 PRTG applies these limits only when it first creates a channel; change them later in
 each channel's settings. If the sensor can't reach the page, PRTG marks it down, which

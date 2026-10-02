@@ -259,11 +259,11 @@ sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-### 3. Start the service and sign in
+### 3. Start the services and sign in
 
 ```bash
-sudo systemctl enable --now netops
-systemctl status netops --no-pager       # should say "active (running)"
+sudo systemctl enable --now netops netops-worker
+systemctl status netops netops-worker --no-pager   # both "active (running)"
 journalctl -u netops -f                  # watch the log while you sign in (Ctrl+C to stop)
 ```
 
@@ -296,8 +296,8 @@ sudo chmod 600 /etc/netops/tls/netops.key
 sudo ln -sf /etc/nginx/sites-available/netops /etc/nginx/sites-enabled/netops
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl reload nginx
-sudo systemctl enable --now netops
-systemctl status netops --no-pager
+sudo systemctl enable --now netops netops-worker
+systemctl status netops netops-worker --no-pager
 ```
 
 Open **https://localhost** on the machine (or `https://<its IP>` from another PC), accept
@@ -422,4 +422,7 @@ device still works. That proves the stored passwords can still be decrypted.
 | AD login fails | `journalctl -u netops` shows the LDAP error. Check the time (`chronyc tracking`), the CA file, the firewall rule to the DCs on 636 |
 | Device backups time out | The firewall output rule to `DEVICE_NETS` on port 22; the device's SSH access list (security-hardening.md §11) |
 | Something was blocked | `journalctl -k | grep nft-` shows dropped traffic in and out |
-| Check the sandbox | `systemd-analyze security netops` (a lower score is better) |
+| Check the sandbox | `systemd-analyze security netops` and `… netops-worker` (a lower score is better) |
+| "The upgrade worker isn't running" in the GUI | `systemctl status netops-worker`; `journalctl -u netops-worker -n 50` |
+| `install.sh` refuses: "a live upgrade job is running" | A device is being upgraded. Wait until the job has finished or paused (`sudo netops-cli upgrades-running`), or run with `FORCE=1` if you are sure |
+| FTD upgrade: "FDM API unreachable" | The firewall output rule to `FDM_HOSTS` on port 443, and FDM's management access list |

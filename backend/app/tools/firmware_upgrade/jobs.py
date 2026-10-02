@@ -769,6 +769,12 @@ class JobService:
         with session_scope() as db:
             job = db.get(UpgradeJob, job_id)
             mode, steps = load_plan(job)
+            device = db.get(Device, job.device_id)
+            if not job.dry_run and mode == "upgrade" and \
+                    not self.settings.live_allowed(device.platform, job.path):
+                event(db, job_id, "Not continued: live upgrades are switched off for this "
+                                  "platform", "continue", "warn")
+                return job.status
             job.status = ROLLING_BACK if mode == "rollback" else RUNNING
             job.stop_requested = False
             event(db, job_id, f"Continued by {username}: next step "
@@ -941,8 +947,11 @@ class JobService:
                 job.step_index = idx + 1
                 if failures:
                     job.status, job.current_step = FAILED, ""
-                    event(db, job_id, "Stopped: post-check failure(s). Fix and re-run the "
-                          "post-checks, override with a note, or roll back.", "postcheck", "warn")
+                    event(db, job_id, "Stopped: the post-checks after the roll back failed. "
+                          "Check the device, then re-run the post-checks or override with a note."
+                          if mode == "rollback" else
+                          "Stopped: post-check failure(s). Fix and re-run the post-checks, "
+                          "override with a note, or roll back.", "postcheck", "warn")
                     return FAILED
 
     def _stop_at(self, job_id: int, ctx: EngineContext, status: str, message: str,

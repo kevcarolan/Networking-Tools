@@ -221,3 +221,28 @@ pre.config .hunk { color: var(--accent); display: block; }
   .grid2 { grid-template-columns: 1fr; }
   .toolbar input[type=search] { min-width: 0; flex: 1 1 100%; }
 }
+
+/* Upgrade jobs: mode choice, units, procedure timeline */
+fieldset { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin: 0; display: grid; gap: 6px; }
+fieldset > button { justify-self: start; }
+legend { font-size: 12px; color: var(--muted); padding: 0 4px; }
+label.inline { display: flex; gap: 8px; align-items: center; font-weight: normal; }
+label.inline input { width: auto; }
+.units { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.unit { border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; display: grid; gap: 2px; min-width: 160px; }
+.unit small { color: var(--muted); }
+ol.steps { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 2px; }
+ol.steps li { display: grid; grid-template-columns: 28px 1fr auto; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 6px; }
+ol.steps li .n { text-align: center; font-size: 12px; color: var(--muted); }
+ol.steps li.done { color: var(--muted); }
+ol.steps li.done .n::before { content: "✓"; color: var(--ok); }
+ol.steps li.current { background: var(--warn-bg); font-weight: 600; }
+ol.steps li.next { outline: 1px dashed var(--border); }
+ol.steps li small { color: var(--muted); font-weight: normal; }
+.tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--fail-bg); color: var(--fail); }
+.tag.gate { background: var(--ok-bg); color: var(--ok); }
+.badge.live { background: var(--fail-bg); color: var(--fail); font-weight: 600; }
+.badge.paused, .badge.staging { background: var(--warn-bg); color: var(--warn); }
+.spin { display: inline-block; width: 10px; height: 10px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: -1px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }

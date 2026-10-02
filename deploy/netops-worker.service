@@ -1,0 +1,54 @@
+# NetOps upgrade worker (systemd). Installed by deploy/airgap/install.sh.
+# Carries out firmware upgrade jobs queued by the web app. It listens on nothing.
+# A separate service so that restarting the web app never interrupts a copy or a
+# reload. On stop, running jobs pause before their next step (TimeoutStopSec gives
+# the current step - e.g. waiting for a reload - time to finish).
+# Check the sandboxing with:  systemd-analyze security netops-worker
+[Unit]
+Description=NetOps upgrade worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=netops
+Group=netops
+WorkingDirectory=/opt/netops/current/backend
+EnvironmentFile=/etc/netops/netops.env
+Environment=NETOPS_DATA_DIR=/var/lib/netops NETOPS_CREDENTIAL_KEY_FILE=/etc/netops/credential.key
+ExecStart=/opt/netops/current/venv/bin/python -m app.worker
+SyslogIdentifier=netops-worker
+Restart=on-failure
+RestartSec=10
+KillSignal=SIGTERM
+TimeoutStopSec=45min
+UMask=0027
+
+# Sandboxing: the service can write only to its data folder, sees no home
+# folders or devices, keeps no privileges and can only use normal network sockets.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/netops
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RemoveIPC=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+
+[Install]
+WantedBy=multi-user.target

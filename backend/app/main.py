@@ -21,6 +21,7 @@ from app.tools.config_backup.storage import GitConfigStore
 from app.tools.circuits import api as circuits_api
 from app.tools.firmware_upgrade import api as firmware_api
 from app.tools.firmware_upgrade import jobs_api
+from app.tools.firmware_upgrade.deviceio import DeviceIO
 from app.tools.firmware_upgrade.jobs import JobService
 from app.tools.firmware_upgrade.service import FirmwareService
 
@@ -34,7 +35,8 @@ _SECURITY_HEADERS = {
 
 
 def create_app(settings: Settings | None = None, fetcher=fetch_config,
-               start_scheduler: bool | None = None, fw_collector=run_commands) -> FastAPI:
+               start_scheduler: bool | None = None, fw_collector=run_commands,
+               upgrade_io: DeviceIO | None = None) -> FastAPI:
     settings = settings or get_settings()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     init_engine(settings.database_url)
@@ -42,21 +44,22 @@ def create_app(settings: Settings | None = None, fetcher=fetch_config,
     store = GitConfigStore(settings.configs_dir)
     backup_service = BackupService(settings, cipher, store, fetcher=fetcher)
     firmware_service = FirmwareService(settings, cipher, collector=fw_collector)
-    job_service = JobService(settings, cipher, backup_service, collector=fw_collector)
+    upgrade_io = upgrade_io or DeviceIO(fw_collector)
+    # Upgrade jobs run in the separate worker process (app.worker); the web app only
+    # queues requests. This instance is for tests and the CLI.
+    job_service = JobService(settings, cipher, backup_service, io=upgrade_io)
     run_scheduler = settings.scheduler_enabled if start_scheduler is None else start_scheduler
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         backup_service.recover_interrupted()
         firmware_service.recover_interrupted()
-        job_service.recover_interrupted()
         if run_scheduler:
             backup_service.start()
             firmware_service.start()
         yield
         backup_service.stop()
         firmware_service.stop()
-        job_service.stop()
 
     docs = settings.api_docs
     app = FastAPI(title="NetOps Tools", lifespan=lifespan, redoc_url=None,
@@ -69,6 +72,7 @@ def create_app(settings: Settings | None = None, fetcher=fetch_config,
     app.state.backup_service = backup_service
     app.state.firmware_service = firmware_service
     app.state.job_service = job_service
+    app.state.upgrade_io = upgrade_io
 
     app.add_middleware(
         SessionMiddleware, secret_key=settings.secret_key, session_cookie="netops_session",

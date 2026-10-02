@@ -73,6 +73,7 @@ def settings(tmp_path):
         _env_file=None, data_dir=tmp_path / "data",
         local_admin_user="admin", local_admin_password_hash=hash_password(ADMIN_PASSWORD),
         ldap_url="", scheduler_enabled=False, backup_workers=2,
+        upgrade_require_worker=False, upgrade_settle_seconds=0, upgrade_poll_seconds=10,
     ).prepare()
 
 

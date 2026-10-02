@@ -27,7 +27,7 @@ def init_engine(database_url: str):
         cur = dbapi_conn.cursor()
         cur.execute("PRAGMA foreign_keys=ON")
         cur.execute("PRAGMA journal_mode=WAL")
-        cur.execute("PRAGMA busy_timeout=5000")
+        cur.execute("PRAGMA busy_timeout=15000")
         cur.close()
 
     # Import every model module so its tables are registered before create_all.

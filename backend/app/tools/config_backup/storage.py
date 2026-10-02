@@ -5,9 +5,11 @@ readable diffs, and the folder can be browsed or grepped directly on disk.
 """
 
 import difflib
+import fcntl
 import re
 import subprocess
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 _SLUG_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -27,11 +29,23 @@ class GitConfigStore:
         self.root = root
         self._lock = threading.Lock()  # git's index can't take concurrent writers
         root.mkdir(parents=True, exist_ok=True)
-        if not (root / ".git").exists():
-            self._git("init", "-q")
-            self._git("symbolic-ref", "HEAD", "refs/heads/main")
-        self._git("config", "user.name", "netops-config-backup")
-        self._git("config", "user.email", "netops@localhost")
+        with self._writing():
+            if not (root / ".git").exists():
+                self._git("init", "-q")
+                self._git("symbolic-ref", "HEAD", "refs/heads/main")
+            self._git("config", "user.name", "netops-config-backup")
+            self._git("config", "user.email", "netops@localhost")
+
+    @contextmanager
+    def _writing(self):
+        """One writer at a time, across threads and processes (the web app and the
+        upgrade worker both take backups)."""
+        with self._lock, open(self.root.parent / ".configs.lock", "a") as fh:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(fh, fcntl.LOCK_UN)
 
     def _git(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
         return subprocess.run(["git", "-C", str(self.root), *args],
@@ -46,7 +60,7 @@ class GitConfigStore:
     def save(self, rel_path: str, content: str, message: str,
              previous_path: str | None = None) -> tuple[bool, str | None]:
         """Write and commit a config. Returns (changed, commit_sha)."""
-        with self._lock:
+        with self._writing():
             path = self._safe(rel_path)
             if previous_path and previous_path != rel_path:
                 old = self._safe(previous_path)

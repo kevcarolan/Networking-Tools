@@ -383,7 +383,8 @@ def pre_checks(platform: str, outputs: dict[str, str], image: ImageFacts, th: Th
     try:
         f = parse_facts(platform, facts_outputs(platform, outputs))
         facts = {"version": f.version, "model": f.model, "boot_mode": f.boot_mode,
-                 "flash_free": f.flash_free, "flash_total": f.flash_total}
+                 "flash_free": f.flash_free, "flash_total": f.flash_total, "image": f.image,
+                 "ha_role": f.ha_role}
     except ValueError as exc:
         results.append(CheckResult("version_read", "Read software version", BLOCKER, ERROR, "",
                                    str(exc)))
@@ -398,14 +399,8 @@ def pre_checks(platform: str, outputs: dict[str, str], image: ImageFacts, th: Th
             "version_differs", "Device isn't already on the target version", BLOCKER,
             FAIL if same else PASS, f"{facts['version']} → {image.version}"))
         is_xe = "IOS XE" in (get("version") or "") or "IOS-XE" in (get("version") or "")
-        if platform == "cisco_ios" and is_xe:
-            results.append(CheckResult(
-                "install_mode", "IOS-XE runs in install mode", BLOCKER,
-                PASS if facts["boot_mode"] == "install" else FAIL,
-                facts["boot_mode"] or "unknown",
-                "" if facts["boot_mode"] == "install" else
-                "Upgrades use 'install add … activate commit', which needs install mode"))
-        factor = flash_factor_install if (platform == "cisco_ios" and is_xe) else flash_factor
+        install = platform == "cisco_ios" and is_xe and facts["boot_mode"] == "install"
+        factor = flash_factor_install if install else flash_factor
         need = int(image.size * factor)
         free = facts["flash_free"]
         results.append(CheckResult(
@@ -480,51 +475,3 @@ def compare_snapshots(pre: dict, post: dict, target_version: str) -> list[CheckR
                                    f"{len(post['stack'])} of {len(pre['stack'])}",
                                    "\n".join(f"switch {n} missing" for n in missing)))
     return results
-
-
-# --- what the upgrade will do (shown as "would ..." steps in a dry run) -------------
-
-def upgrade_steps(platform: str, ios_xe: bool, filename: str, md5: str, size: int,
-                  from_version: str) -> list[tuple[str, str]]:
-    """(step, description) for the upgrade on this platform."""
-    mb = size // 2**20
-    if platform == "cisco_ios" and ios_xe:
-        return [
-            ("copy", f"Copy {filename} ({mb} MB) to flash: over SCP"),
-            ("verify", f"verify /md5 flash:{filename} {md5}"),
-            ("activate", f"install add file flash:{filename} activate commit prompt-level none"),
-            ("reload", "Device reloads as part of 'install activate'"),
-            ("wait", "Wait for SSH to come back (timeout 30 min), then run the post-checks"),
-        ]
-    if platform == "cisco_ios":
-        return [("copy", f"Copy {filename} ({mb} MB) to flash: over SCP"),
-                ("verify", f"verify /md5 flash:{filename} {md5}"),
-                ("activate", f"boot system flash:{filename}; write memory"),
-                ("reload", "reload"), ("wait", "Wait for SSH, then run the post-checks")]
-    if platform == "cisco_nxos":
-        return [("copy", f"Copy {filename} ({mb} MB) to bootflash: over SCP"),
-                ("verify", f"show file bootflash:{filename} md5sum = {md5}"),
-                ("activate", f"install all nxos bootflash:{filename}"),
-                ("wait", "Wait for SSH, then run the post-checks")]
-    if platform == "cisco_asa":
-        return [("copy", f"Copy {filename} ({mb} MB) to disk0: over SCP"),
-                ("verify", f"verify /md5 disk0:/{filename} {md5}"),
-                ("activate", f"boot system disk0:/{filename}; write memory"),
-                ("reload", "reload (failover pairs: standby unit first - phase 5)"),
-                ("wait", "Wait for SSH, then run the post-checks")]
-    if platform == "cisco_ftd":
-        return [("activate", f"FDM REST API: upload {filename}, readiness check, install"),
-                ("wait", "Wait for FDM to report the upgrade finished, then run the post-checks")]
-    if platform == "allied_awplus":
-        return [("copy", f"Switch downloads {filename} ({mb} MB) from NetOps over HTTPS"),
-                ("activate", f"boot system flash:/{filename}; write memory"),
-                ("reload", "reload"), ("wait", "Wait for SSH, then run the post-checks")]
-    return [("activate", f"Install {filename}")]
-
-
-def rollback_steps(platform: str, ios_xe: bool, from_version: str) -> list[tuple[str, str]]:
-    if platform == "cisco_ios" and ios_xe:
-        return [("rollback", f"install activate the previous image ({from_version}) and commit"),
-                ("wait", "Wait for SSH, then run the post-checks against the previous version")]
-    return [("rollback", f"Boot the previous image ({from_version}) again and reload"),
-            ("wait", "Wait for SSH, then run the post-checks against the previous version")]

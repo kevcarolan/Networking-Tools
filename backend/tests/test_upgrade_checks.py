@@ -59,7 +59,7 @@ def test_pre_checks_all_pass_on_a_healthy_switch():
     blocking = [x for x in r.values() if x.blocking]
     assert blocking == []
     for cid in ("alarms", "environment", "install_state", "stack", "unsaved_config", "flash_space",
-                "image_model", "version_differs", "install_mode", "image_md5", "image_platform"):
+                "image_model", "version_differs", "image_md5", "image_platform"):
         assert r[cid].status == c.PASS, cid
     assert r["install_inactive"].severity == c.INFO
     assert "MB free" in r["flash_space"].value
@@ -98,8 +98,9 @@ def test_image_checks():
 def test_bundle_mode_blocks_and_unsupported_commands_skip():
     bundle = s.IOS_XE_VERSION.replace("packages.conf", "cat9k.bin").replace(
         "CAT9K_IOSXE           INSTALL", "CAT9K_IOSXE           BUNDLE")
-    r, _ = _pre({**IOS_GOOD, "version": bundle})
-    assert r["install_mode"].blocking
+    r, facts = _pre({**IOS_GOOD, "version": bundle})
+    # the install-mode check belongs to the IOS driver's install path (test_upgrade_engine)
+    assert facts["boot_mode"] == "bundle" and "× 1.1" in r["flash_space"].detail
     r, _ = _pre({**IOS_GOOD, "alarms": s.INVALID, "install": s.INVALID})
     assert r["alarms"].status == c.SKIP and not r["alarms"].blocking
     assert r["install_state"].status == c.SKIP

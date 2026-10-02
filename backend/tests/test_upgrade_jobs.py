@@ -1,5 +1,3 @@
-import time
-
 import pytest
 
 from app.tools.firmware_upgrade import checks as ck
@@ -15,6 +13,9 @@ IOS_OUT = {
     "show switch": s.STACK_OK, "show ip interface brief": s.IP_BRIEF,
     "show cdp neighbors detail": s.CDP_DETAIL, "show lldp neighbors detail": s.LLDP_DETAIL,
     "show etherchannel summary": s.ETHERCHANNEL, "show mac address-table count": s.MAC_COUNT,
+    "show running-config | include ip scp server": "ip scp server enable\n",
+    "show running-config | include ^boot system": "",
+    "show install rollback": "ID  Label     Description\n1   No Label  No Description\n",
 }
 IMAGE_DATA = b"cat9k image" * 1000
 
@@ -82,8 +83,12 @@ def test_full_dry_run_with_an_overridden_alarm(admin, env):
     assert all(c["status"] in ("pass", "skip") or c["severity"] != "blocker" or c["overridden_by"]
                for c in j["checks"]["post"])
     msgs = " | ".join(e["message"] for e in j["events"])
-    assert "DRY RUN - would: install add file flash:cat9k_iosxe.17.12.04.SPA.bin" in msgs
-    assert "verify /md5" in msgs and j["pre_backup_commit"] and j["post_backup_commit"]
+    assert "DRY RUN - would run on core-sw1: install add file flash:cat9k_iosxe.17.12.04.SPA.bin" in msgs
+    assert "install activate auto-abort-timer 120 prompt-level none" in msgs
+    assert "DRY RUN - would copy cat9k_iosxe.17.12.04.SPA.bin" in msgs
+    assert "DRY RUN - would run on core-sw1: install commit" in msgs
+    assert j["pre_backup_commit"] and j["post_backup_commit"]
+    assert all(st["kind"] for st in j["steps"]) and j["step_index"] == len(j["steps"])
     assert j["started_by"] == "admin" and j["finished_at"]
 
     report = admin.get(f"/api/firmware/jobs/{job['id']}/report.html")
@@ -118,46 +123,49 @@ def test_post_check_failure_then_override_or_rollback(admin, env, app):
     job = _create(admin, env)
     assert env["svc"].precheck(job["id"], "admin") == "ready"
     # Simulate an interface going down after the "upgrade"
-    real = env["svc"].postcheck
+    def on_step(job_id, label):
+        if "post-checks" in label:
+            env["outputs"]["show ip interface brief"] = s.IP_BRIEF.replace(
+                "GigabitEthernet2/0/13  unassigned      YES unset  up                    up",
+                "GigabitEthernet2/0/13  unassigned      YES unset  down                  down")
 
-    def broken_post(job_id, username, **kw):
-        env["outputs"]["show ip interface brief"] = s.IP_BRIEF.replace(
-            "GigabitEthernet2/0/13  unassigned      YES unset  up                    up",
-            "GigabitEthernet2/0/13  unassigned      YES unset  down                  down")
-        return real(job_id, username, **kw)
-
-    env["svc"].postcheck = broken_post
+    env["svc"].on_step = on_step
     assert env["svc"].start(job["id"], "admin") == "failed"
-    env["svc"].postcheck = real
     j = _job(admin, job["id"])
     failed = _check(j, "post", "post_interfaces")
     assert failed["status"] == "fail" and "GigabitEthernet2/0/13" in failed["detail"]
-    assert set(j["allowed"]) == {"postcheck", "rollback"}
+    assert set(j["allowed"]) == {"cancel", "postcheck", "rollback"}
+    assert j["steps"][j["step_index"]]["kind"] == "install_commit"  # not committed
 
     # Re-running the post-checks while it is still down keeps it failed
     assert env["svc"].postcheck(job["id"], "admin") == "failed"
-    # Rolling back is the engineer's choice
+    # Rolling back is the engineer's choice (and here it brings the interface back)
+    env["svc"].on_step = lambda *a: None
+    env["outputs"]["show ip interface brief"] = s.IP_BRIEF
     assert env["svc"].rollback(job["id"], "admin") == "rolled_back"
     msgs = " | ".join(e["message"] for e in _job(admin, job["id"])["events"])
-    assert "DRY RUN - would: install activate the previous image (17.09.04a)" in msgs
+    assert "DRY RUN - would run on core-sw1: install rollback to id 1 prompt-level none" in msgs
+    assert "Post-checks on core-sw1: " in msgs
 
 
 def test_post_failure_overridden_with_a_note(admin, env):
     job = _create(admin, env)
     env["svc"].precheck(job["id"], "admin")
-    real = env["svc"].postcheck
+    def on_step(job_id, label):
+        if "post-checks" in label:
+            env["outputs"]["show cdp neighbors detail"] = s.CDP_DETAIL.split(
+                "-------------------------\nDevice ID: GH-AS02")[0]
 
-    def broken(job_id, username, **kw):
-        env["outputs"]["show cdp neighbors detail"] = s.CDP_DETAIL.split(
-            "-------------------------\nDevice ID: GH-AS02")[0]
-        return real(job_id, username, **kw)
-
-    env["svc"].postcheck = broken
+    env["svc"].on_step = on_step
     assert env["svc"].start(job["id"], "admin") == "failed"
     cdp = _check(_job(admin, job["id"]), "post", "post_cdp")
     r = admin.post(f"/api/firmware/jobs/{job['id']}/checks/{cdp['id']}/override",
                    json={"reason": "GH-AS02 is down for separate works (CHG0012399)"})
-    assert r.json()["status"] == "completed_overrides" and r.json()["finished_at"]
+    # the commit is still to do: Continue carries on
+    assert r.json()["status"] == "paused" and r.json()["allowed"] == [
+        "cancel", "continue", "postcheck", "rollback"]
+    assert env["svc"].continue_(job["id"], "admin") == "completed_overrides"
+    assert _job(admin, job["id"])["finished_at"]
 
 
 def test_blockers_without_device_problems(admin, env, device, app):
@@ -211,15 +219,26 @@ def test_circuits_are_frozen_with_the_job(admin, env, device):
     assert "A-DUB01-GH-100-3" in admin.get(f"/api/firmware/jobs/{job['id']}/report.html").text
 
 
-def test_api_actions_run_in_the_background(admin, env):
+def test_api_actions_are_queued_for_the_worker(admin, env, settings):
+    from app.worker import UpgradeWorker
+
     job = _create(admin, env)
     assert admin.post(f"/api/firmware/jobs/{job['id']}/precheck").status_code == 202
-    for _ in range(100):
-        j = _job(admin, job["id"])
-        if not j["busy"] and j["status"] not in ("planned", "pre_checking"):
-            break
-        time.sleep(0.05)
-    assert j["status"] == "ready"
+    j = _job(admin, job["id"])
+    assert j["busy"] and j["queued"] == "precheck" and j["allowed"] == []
+    # a second request while one is waiting is refused
+    assert admin.post(f"/api/firmware/jobs/{job['id']}/precheck").status_code == 409
+    worker = UpgradeWorker(settings, env["svc"])
+    assert worker.process_once(wait=True) == 1
+    assert worker.process_once(wait=True) == 0  # nothing runs twice
+    j = _job(admin, job["id"])
+    assert j["status"] == "ready" and not j["busy"]
+    # with the worker required but not running, actions are refused
+    settings.upgrade_require_worker = True
+    r = admin.post(f"/api/firmware/jobs/{job['id']}/precheck")
+    assert r.status_code == 409 and "worker" in r.json()["detail"]
+    worker.heartbeat()
+    assert admin.post(f"/api/firmware/jobs/{job['id']}/precheck").status_code == 202
 
 
 def test_permissions(client, app, admin, env, settings):
@@ -249,13 +268,20 @@ def test_service_restart_marks_running_jobs(admin, env, app):
     from app.core.db import session_scope
     from app.tools.firmware_upgrade.models import UpgradeJob
 
+    from app.tools.firmware_upgrade.models import JobUnit
+
     job = _create(admin, env)
     with session_scope() as db:
-        db.get(UpgradeJob, job["id"]).status = "running"
+        db.get(UpgradeJob, job["id"]).status = "pre_checking"
     env["svc"].recover_interrupted()
     j = _job(admin, job["id"])
     assert j["status"] == "needs_attention" and "restarted" in j["events"][-1]["message"]
-    assert set(j["allowed"]) == {"postcheck", "precheck", "rollback"}
+    assert set(j["allowed"]) == {"cancel", "precheck"}  # nothing changed on the device yet
+    with session_scope() as db:
+        db.get(UpgradeJob, job["id"]).status = "running"
+        db.query(JobUnit).filter_by(job_id=job["id"]).one().status = "activated"
+    env["svc"].recover_interrupted()
+    assert set(_job(admin, job["id"])["allowed"]) == {"cancel", "postcheck", "rollback"}
 
 
 def test_report_escapes_values(admin, env):

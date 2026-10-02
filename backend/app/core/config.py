@@ -67,6 +67,20 @@ class Settings(BaseSettings):
     upgrade_flash_factor: float = 1.1  # free flash needed = image size x factor
     upgrade_flash_factor_install: float = 2.2  # IOS-XE install mode expands the image
     upgrade_backup_max_age_hours: int = 24
+    # Platforms (or platform:path) allowed to make real changes, comma-separated,
+    # e.g. "cisco_ios" or "cisco_ios,cisco_ftd:fdm_ha". Empty = every job is a dry run.
+    upgrade_live_platforms: str = ""
+    upgrade_abort_timer_min: int = 120  # IOS-XE: reverts by itself unless committed in time
+    upgrade_reload_timeout_min: int = 30  # how long to wait for a device to come back
+    upgrade_settle_seconds: int = 120  # wait after SSH is back before the post-checks
+    upgrade_copy_timeout_min: int = 60  # image copy and install commands
+    upgrade_poll_seconds: int = 15  # how often to test whether a reloading device is back
+    upgrade_worker_poll_seconds: float = 2.0  # how often the worker looks for new requests
+    upgrade_require_worker: bool = True  # refuse job actions while the worker isn't running
+
+    def live_allowed(self, platform: str, path: str) -> bool:
+        allowed = {p.strip() for p in self.upgrade_live_platforms.split(",") if p.strip()}
+        return platform in allowed or f"{platform}:{path}" in allowed
 
     # Circuit list tool
     circuits_max_upload_mb: int = 25
